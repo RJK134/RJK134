@@ -1,0 +1,100 @@
+{
+  "name": "Nightly Backup",
+  "nodes": [
+    {
+      "id": "f1b2c3d4-6666-4000-8000-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 2 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "f1b2c3d4-6666-4000-8000-000000000002",
+      "name": "Run Backup Script",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [250, 0],
+      "parameters": {
+        "command": "bash /srv/core/backup.sh"
+      }
+    },
+    {
+      "id": "f1b2c3d4-6666-4000-8000-000000000003",
+      "name": "Check Exit Code",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [500, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-exit-code",
+              "leftValue": "={{ $json.exitCode }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "f1b2c3d4-6666-4000-8000-000000000004",
+      "name": "Insert Backup Failed Alert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [750, -50],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO alerts (alert_type, severity, message, created_at) VALUES ('backup_failed', 'critical', 'Nightly backup script failed with exit code ' || '{{ $json.exitCode }}' || '. stderr: ' || LEFT('{{ $json.stderr }}', 500), NOW())"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [{ "node": "Run Backup Script", "type": "main", "index": 0 }]
+      ]
+    },
+    "Run Backup Script": {
+      "main": [
+        [{ "node": "Check Exit Code", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Exit Code": {
+      "main": [
+        [{ "node": "Insert Backup Failed Alert", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}

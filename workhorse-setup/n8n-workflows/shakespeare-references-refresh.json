@@ -1,0 +1,206 @@
+{
+  "name": "Shakespeare References Refresh",
+  "nodes": [
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 2,5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000002",
+      "name": "Fetch Shakespeare Globe",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, -150],
+      "parameters": {
+        "url": "https://www.shakespearesglobe.com/",
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000003",
+      "name": "Fetch RSC",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 0],
+      "parameters": {
+        "url": "https://www.rsc.org.uk/",
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000004",
+      "name": "Fetch Folger",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 150],
+      "parameters": {
+        "url": "https://shakespeare.folger.edu/",
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000005",
+      "name": "Save Globe HTML",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [500, -150],
+      "parameters": {
+        "fileName": "/srv/projects/shakespeare-is-boring/raw/shakespearesglobe.html",
+        "dataPropertyName": "data"
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000006",
+      "name": "Save RSC HTML",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [500, 0],
+      "parameters": {
+        "fileName": "/srv/projects/shakespeare-is-boring/raw/rsc.html",
+        "dataPropertyName": "data"
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000007",
+      "name": "Save Folger HTML",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [500, 150],
+      "parameters": {
+        "fileName": "/srv/projects/shakespeare-is-boring/raw/folger.html",
+        "dataPropertyName": "data"
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000008",
+      "name": "Insert Globe Entity",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [750, -150],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO entities (entity_type, name, source_url, first_seen_at, last_seen_at) VALUES ('reference_source', 'Shakespeare''s Globe', 'https://www.shakespearesglobe.com/', NOW(), NOW()) ON CONFLICT (entity_type, source_url) DO UPDATE SET last_seen_at = NOW();"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000009",
+      "name": "Insert RSC Entity",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [750, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO entities (entity_type, name, source_url, first_seen_at, last_seen_at) VALUES ('reference_source', 'Royal Shakespeare Company', 'https://www.rsc.org.uk/', NOW(), NOW()) ON CONFLICT (entity_type, source_url) DO UPDATE SET last_seen_at = NOW();"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000010",
+      "name": "Insert Folger Entity",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [750, 150],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO entities (entity_type, name, source_url, first_seen_at, last_seen_at) VALUES ('reference_source', 'Folger Shakespeare Library', 'https://shakespeare.folger.edu/', NOW(), NOW()) ON CONFLICT (entity_type, source_url) DO UPDATE SET last_seen_at = NOW();"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          { "node": "Fetch Shakespeare Globe", "type": "main", "index": 0 },
+          { "node": "Fetch RSC", "type": "main", "index": 0 },
+          { "node": "Fetch Folger", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Shakespeare Globe": {
+      "main": [
+        [{ "node": "Save Globe HTML", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch RSC": {
+      "main": [
+        [{ "node": "Save RSC HTML", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Folger": {
+      "main": [
+        [{ "node": "Save Folger HTML", "type": "main", "index": 0 }]
+      ]
+    },
+    "Save Globe HTML": {
+      "main": [
+        [{ "node": "Insert Globe Entity", "type": "main", "index": 0 }]
+      ]
+    },
+    "Save RSC HTML": {
+      "main": [
+        [{ "node": "Insert RSC Entity", "type": "main", "index": 0 }]
+      ]
+    },
+    "Save Folger HTML": {
+      "main": [
+        [{ "node": "Insert Folger Entity", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}

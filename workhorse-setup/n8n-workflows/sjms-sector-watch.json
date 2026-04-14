@@ -1,0 +1,214 @@
+{
+  "name": "SJMS Sector Watch",
+  "nodes": [
+    {
+      "id": "b2c3d4e5-2222-4000-8000-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-2222-4000-8000-000000000002",
+      "name": "Set URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0],
+      "parameters": {
+        "jsCode": "return [\n  { json: { url: 'https://www.hesa.ac.uk/news', source_name: 'HESA' } },\n  { json: { url: 'https://www.jisc.ac.uk/news', source_name: 'Jisc' } },\n  { json: { url: 'https://www.ucisa.ac.uk/news', source_name: 'UCISA' } }\n];"
+      }
+    },
+    {
+      "id": "b2c3d4e5-2222-4000-8000-000000000003",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [440, 0],
+      "parameters": {
+        "batchSize": 1
+      }
+    },
+    {
+      "id": "b2c3d4e5-2222-4000-8000-000000000004",
+      "name": "Fetch Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "method": "GET",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-2222-4000-8000-000000000005",
+      "name": "Compute SHA256 Hash",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 0],
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const body = typeof item.json.data === 'string' ? item.json.data : JSON.stringify(item.json.data || item.json);\n  const hash = crypto.createHash('sha256').update(body).digest('hex');\n  results.push({\n    json: {\n      url: item.json.url || $('Split In Batches').first().json.url,\n      source_name: $('Split In Batches').first().json.source_name,\n      content_hash: hash,\n      fetched_at: new Date().toISOString()\n    }\n  });\n}\n\nreturn results;"
+      }
+    },
+    {
+      "id": "b2c3d4e5-2222-4000-8000-000000000006",
+      "name": "Get Last Hash",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1100, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT content_hash FROM captures WHERE source_url = '{{ $json.url }}' ORDER BY captured_at DESC LIMIT 1;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-2222-4000-8000-000000000007",
+      "name": "Hash Changed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1320, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "condition-1",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              },
+              "leftValue": "={{ $('Compute SHA256 Hash').first().json.content_hash }}",
+              "rightValue": "={{ $('Get Last Hash').first().json.content_hash }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-2222-4000-8000-000000000008",
+      "name": "Insert Capture",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1540, -100],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO captures (source_url, content_hash, captured_at)\nVALUES (\n  '{{ $('Compute SHA256 Hash').first().json.url }}',\n  '{{ $('Compute SHA256 Hash').first().json.content_hash }}',\n  NOW()\n);"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-2222-4000-8000-000000000009",
+      "name": "Insert Regulatory Update Entity",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1760, -100],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO entities (name, entity_type, source_url, metadata, created_at)\nVALUES (\n  'Regulatory update from {{ $('Compute SHA256 Hash').first().json.source_name }}',\n  'regulatory_update',\n  '{{ $('Compute SHA256 Hash').first().json.url }}',\n  json_build_object('content_hash', '{{ $('Compute SHA256 Hash').first().json.content_hash }}', 'detected_at', '{{ $('Compute SHA256 Hash').first().json.fetched_at }}'),\n  NOW()\n);"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-2222-4000-8000-000000000010",
+      "name": "Loop Back",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1980, 0],
+      "parameters": {
+        "jsCode": "// No-op: route back to SplitInBatches for next item\nreturn $input.all();"
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [{ "node": "Set URLs", "type": "main", "index": 0 }]
+      ]
+    },
+    "Set URLs": {
+      "main": [
+        [{ "node": "Split In Batches", "type": "main", "index": 0 }]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [{ "node": "Fetch Page", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Fetch Page": {
+      "main": [
+        [{ "node": "Compute SHA256 Hash", "type": "main", "index": 0 }]
+      ]
+    },
+    "Compute SHA256 Hash": {
+      "main": [
+        [{ "node": "Get Last Hash", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Last Hash": {
+      "main": [
+        [{ "node": "Hash Changed?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Hash Changed?": {
+      "main": [
+        [{ "node": "Insert Capture", "type": "main", "index": 0 }],
+        [{ "node": "Loop Back", "type": "main", "index": 0 }]
+      ]
+    },
+    "Insert Capture": {
+      "main": [
+        [{ "node": "Insert Regulatory Update Entity", "type": "main", "index": 0 }]
+      ]
+    },
+    "Insert Regulatory Update Entity": {
+      "main": [
+        [{ "node": "Loop Back", "type": "main", "index": 0 }]
+      ]
+    },
+    "Loop Back": {
+      "main": [
+        [{ "node": "Split In Batches", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}

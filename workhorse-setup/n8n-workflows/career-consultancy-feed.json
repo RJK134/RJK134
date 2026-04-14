@@ -1,0 +1,139 @@
+{
+  "name": "Career Consultancy Feed",
+  "nodes": [
+    {
+      "id": "d4e5f6a7-4444-4000-8000-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "d4e5f6a7-4444-4000-8000-000000000002",
+      "name": "Fetch Guardian EdTech Jobs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, -100],
+      "parameters": {
+        "url": "https://jobs.theguardian.com/jobs/education-technology/",
+        "method": "GET",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "d4e5f6a7-4444-4000-8000-000000000003",
+      "name": "Fetch Jobs.ac.uk EdTech",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 100],
+      "parameters": {
+        "url": "https://www.jobs.ac.uk/search/?q=education+technology",
+        "method": "GET",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "d4e5f6a7-4444-4000-8000-000000000004",
+      "name": "Parse Guardian Listings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, -100],
+      "parameters": {
+        "jsCode": "const html = typeof $input.first().json.data === 'string'\n  ? $input.first().json.data\n  : JSON.stringify($input.first().json);\n\nconst results = [];\n\n// Extract job listings using regex on common HTML patterns\nconst titleRegex = /<a[^>]+href=\"(\\/job\\/[^\"]+)\"[^>]*>([^<]+)<\\/a>/gi;\nlet match;\n\nwhile ((match = titleRegex.exec(html)) !== null) {\n  const link = match[1].startsWith('http') ? match[1] : 'https://jobs.theguardian.com' + match[1];\n  const title = match[2].trim();\n  if (title && title.length > 5) {\n    results.push({\n      json: {\n        title: title,\n        url: link,\n        source: 'guardian_jobs',\n        fetched_at: new Date().toISOString()\n      }\n    });\n  }\n}\n\n// If no matches found, return a placeholder\nif (results.length === 0) {\n  results.push({\n    json: {\n      title: 'Guardian EdTech jobs page scraped (no listings parsed)',\n      url: 'https://jobs.theguardian.com/jobs/education-technology/',\n      source: 'guardian_jobs',\n      fetched_at: new Date().toISOString()\n    }\n  });\n}\n\nreturn results;"
+      }
+    },
+    {
+      "id": "d4e5f6a7-4444-4000-8000-000000000005",
+      "name": "Parse Jobs.ac.uk Listings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 100],
+      "parameters": {
+        "jsCode": "const html = typeof $input.first().json.data === 'string'\n  ? $input.first().json.data\n  : JSON.stringify($input.first().json);\n\nconst results = [];\n\n// Extract job listings - jobs.ac.uk typically uses links with /job/ paths\nconst titleRegex = /<a[^>]+href=\"([^\"]*\\/job\\/[^\"]+)\"[^>]*>([^<]+)<\\/a>/gi;\nlet match;\n\nwhile ((match = titleRegex.exec(html)) !== null) {\n  const link = match[1].startsWith('http') ? match[1] : 'https://www.jobs.ac.uk' + match[1];\n  const title = match[2].trim();\n  if (title && title.length > 5) {\n    results.push({\n      json: {\n        title: title,\n        url: link,\n        source: 'jobs_ac_uk',\n        fetched_at: new Date().toISOString()\n      }\n    });\n  }\n}\n\nif (results.length === 0) {\n  results.push({\n    json: {\n      title: 'Jobs.ac.uk EdTech page scraped (no listings parsed)',\n      url: 'https://www.jobs.ac.uk/search/?q=education+technology',\n      source: 'jobs_ac_uk',\n      fetched_at: new Date().toISOString()\n    }\n  });\n}\n\nreturn results;"
+      }
+    },
+    {
+      "id": "d4e5f6a7-4444-4000-8000-000000000006",
+      "name": "Insert Guardian Opportunities",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [700, -100],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO opportunities (title, url, opp_type, project, source, in_review_queue, created_at)\nVALUES (\n  '{{ $json.title }}',\n  '{{ $json.url }}',\n  'job',\n  'career-opps',\n  '{{ $json.source }}',\n  true,\n  NOW()\n)\nON CONFLICT (url) DO NOTHING;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "d4e5f6a7-4444-4000-8000-000000000007",
+      "name": "Insert Jobs.ac.uk Opportunities",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [700, 100],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO opportunities (title, url, opp_type, project, source, in_review_queue, created_at)\nVALUES (\n  '{{ $json.title }}',\n  '{{ $json.url }}',\n  'job',\n  'career-opps',\n  '{{ $json.source }}',\n  true,\n  NOW()\n)\nON CONFLICT (url) DO NOTHING;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          { "node": "Fetch Guardian EdTech Jobs", "type": "main", "index": 0 },
+          { "node": "Fetch Jobs.ac.uk EdTech", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Guardian EdTech Jobs": {
+      "main": [
+        [{ "node": "Parse Guardian Listings", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Jobs.ac.uk EdTech": {
+      "main": [
+        [{ "node": "Parse Jobs.ac.uk Listings", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Guardian Listings": {
+      "main": [
+        [{ "node": "Insert Guardian Opportunities", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Jobs.ac.uk Listings": {
+      "main": [
+        [{ "node": "Insert Jobs.ac.uk Opportunities", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}

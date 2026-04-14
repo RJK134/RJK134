@@ -1,0 +1,148 @@
+{
+  "name": "CoursePulse Student Signal",
+  "nodes": [
+    {
+      "id": "a7b8c9d0-7777-4000-8000-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7,
+              "triggerAtMinute": 0,
+              "triggerAtDay": [2, 5]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a7b8c9d0-7777-4000-8000-000000000002",
+      "name": "Fetch UniUK RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, -100],
+      "parameters": {
+        "url": "https://www.reddit.com/r/UniUK/.rss",
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "a7b8c9d0-7777-4000-8000-000000000003",
+      "name": "Fetch StudentLoans RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 100],
+      "parameters": {
+        "url": "https://www.reddit.com/r/StudentLoans/.rss",
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "a7b8c9d0-7777-4000-8000-000000000004",
+      "name": "Parse UniUK Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, -100],
+      "parameters": {
+        "jsCode": "const xml = $input.first().json.body || '';\nconst results = [];\n\n// Reddit RSS uses Atom format with <entry> elements\nconst entryPattern = /<entry>([\\s\\S]*?)<\\/entry>/gi;\nlet entryMatch;\n\nwhile ((entryMatch = entryPattern.exec(xml)) !== null) {\n  const entryXml = entryMatch[1];\n\n  const titleMatch = entryXml.match(/<title[^>]*>([^<]*)<\\/title>/);\n  const linkMatch = entryXml.match(/<link[^>]*href=\"([^\"]+)\"/);\n  const updatedMatch = entryXml.match(/<updated>([^<]*)<\\/updated>/);\n  const authorMatch = entryXml.match(/<name>([^<]*)<\\/name>/);\n\n  const title = titleMatch ? titleMatch[1].trim() : 'Untitled';\n  const link = linkMatch ? linkMatch[1].trim() : '';\n  const updated = updatedMatch ? updatedMatch[1].trim() : '';\n  const author = authorMatch ? authorMatch[1].trim() : '';\n\n  if (title && link) {\n    results.push({\n      json: {\n        title,\n        link,\n        published_at: updated,\n        author,\n        source: 'reddit_uniuk',\n        subreddit: 'UniUK'\n      }\n    });\n  }\n}\n\nreturn results.length > 0 ? results : [{ json: { title: 'No posts found', link: '', source: 'reddit_uniuk', subreddit: 'UniUK' } }];"
+      }
+    },
+    {
+      "id": "a7b8c9d0-7777-4000-8000-000000000005",
+      "name": "Parse StudentLoans Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 100],
+      "parameters": {
+        "jsCode": "const xml = $input.first().json.body || '';\nconst results = [];\n\n// Reddit RSS uses Atom format with <entry> elements\nconst entryPattern = /<entry>([\\s\\S]*?)<\\/entry>/gi;\nlet entryMatch;\n\nwhile ((entryMatch = entryPattern.exec(xml)) !== null) {\n  const entryXml = entryMatch[1];\n\n  const titleMatch = entryXml.match(/<title[^>]*>([^<]*)<\\/title>/);\n  const linkMatch = entryXml.match(/<link[^>]*href=\"([^\"]+)\"/);\n  const updatedMatch = entryXml.match(/<updated>([^<]*)<\\/updated>/);\n  const authorMatch = entryXml.match(/<name>([^<]*)<\\/name>/);\n\n  const title = titleMatch ? titleMatch[1].trim() : 'Untitled';\n  const link = linkMatch ? linkMatch[1].trim() : '';\n  const updated = updatedMatch ? updatedMatch[1].trim() : '';\n  const author = authorMatch ? authorMatch[1].trim() : '';\n\n  if (title && link) {\n    results.push({\n      json: {\n        title,\n        link,\n        published_at: updated,\n        author,\n        source: 'reddit_studentloans',\n        subreddit: 'StudentLoans'\n      }\n    });\n  }\n}\n\nreturn results.length > 0 ? results : [{ json: { title: 'No posts found', link: '', source: 'reddit_studentloans', subreddit: 'StudentLoans' } }];"
+      }
+    },
+    {
+      "id": "a7b8c9d0-7777-4000-8000-000000000006",
+      "name": "Merge Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [740, 0],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => ({\n  json: { ...item.json }\n}));"
+      }
+    },
+    {
+      "id": "a7b8c9d0-7777-4000-8000-000000000007",
+      "name": "Insert Market Signals",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [980, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO market_signals (title, source_url, signal_type, source, project, subreddit, author, published_at, created_at)\nVALUES (\n  '{{ $json.title }}',\n  '{{ $json.link }}',\n  'student_sentiment',\n  '{{ $json.source }}',\n  'coursepulse',\n  '{{ $json.subreddit }}',\n  '{{ $json.author }}',\n  CASE WHEN '{{ $json.published_at }}' = '' THEN NOW() ELSE '{{ $json.published_at }}'::timestamptz END,\n  NOW()\n)\nON CONFLICT (source_url) DO NOTHING;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          { "node": "Fetch UniUK RSS", "type": "main", "index": 0 },
+          { "node": "Fetch StudentLoans RSS", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch UniUK RSS": {
+      "main": [
+        [{ "node": "Parse UniUK Posts", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch StudentLoans RSS": {
+      "main": [
+        [{ "node": "Parse StudentLoans Posts", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse UniUK Posts": {
+      "main": [
+        [{ "node": "Merge Posts", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse StudentLoans Posts": {
+      "main": [
+        [{ "node": "Merge Posts", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge Posts": {
+      "main": [
+        [{ "node": "Insert Market Signals", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}

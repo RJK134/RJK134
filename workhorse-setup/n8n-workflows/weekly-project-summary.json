@@ -1,0 +1,82 @@
+{
+  "name": "Weekly Project Summary",
+  "nodes": [
+    {
+      "id": "e1b2c3d4-5555-4000-8000-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "5 20 * * 0"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e1b2c3d4-5555-4000-8000-000000000002",
+      "name": "Fetch Project Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [250, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT p.slug, p.display_name, (SELECT COUNT(*) FROM captures c WHERE c.project_id=p.id AND c.captured_at > NOW()-INTERVAL '7 days') as captures_count, (SELECT COUNT(*) FROM entities e WHERE e.project_id=p.id AND e.first_seen_at > NOW()-INTERVAL '7 days') as entities_count, (SELECT COUNT(*) FROM alerts a WHERE a.project_id=p.id AND a.created_at > NOW()-INTERVAL '7 days') as alerts_count FROM projects p ORDER BY p.priority, p.slug"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "e1b2c3d4-5555-4000-8000-000000000003",
+      "name": "Format Status Table",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 0],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst rows = items.map(i => i.json);\nconst dateStr = new Date().toISOString().split('T')[0];\n\nlet totalCaptures = 0;\nlet totalEntities = 0;\nlet totalAlerts = 0;\n\nfor (const row of rows) {\n  totalCaptures += parseInt(row.captures_count) || 0;\n  totalEntities += parseInt(row.entities_count) || 0;\n  totalAlerts += parseInt(row.alerts_count) || 0;\n}\n\nlet md = `# Weekly Project Summary - ${dateStr}\\n\\n`;\nmd += `**${rows.length} projects tracked** | ${totalCaptures} captures | ${totalEntities} new entities | ${totalAlerts} alerts\\n\\n`;\n\nif (rows.length === 0) {\n  md += '_No projects found._\\n';\n} else {\n  md += '| Project | Slug | Captures | New Entities | Alerts |\\n';\n  md += '|---------|------|----------|--------------|--------|\\n';\n  for (const row of rows) {\n    const name = (row.display_name || row.slug || 'Unknown').replace(/\\|/g, '\\\\|');\n    const slug = (row.slug || '').replace(/\\|/g, '\\\\|');\n    const captures = row.captures_count || 0;\n    const entities = row.entities_count || 0;\n    const alerts = row.alerts_count || 0;\n    const alertFlag = parseInt(alerts) > 0 ? ` ⚠️` : '';\n    md += `| ${name} | ${slug} | ${captures} | ${entities} | ${alerts}${alertFlag} |\\n`;\n  }\n  md += `| **Total** | | **${totalCaptures}** | **${totalEntities}** | **${totalAlerts}** |\\n`;\n}\n\nreturn [{ json: { markdown: md, dateStr } }];"
+      }
+    },
+    {
+      "id": "e1b2c3d4-5555-4000-8000-000000000004",
+      "name": "Write Summary File",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [750, 0],
+      "parameters": {
+        "fileName": "={{ '/srv/shared/digests/projects-' + $json.dateStr + '.md' }}",
+        "dataPropertyName": "data"
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [{ "node": "Fetch Project Stats", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Project Stats": {
+      "main": [
+        [{ "node": "Format Status Table", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Status Table": {
+      "main": [
+        [{ "node": "Write Summary File", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}

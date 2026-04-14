@@ -1,0 +1,104 @@
+{
+  "name": "Weekly Funding Digest",
+  "nodes": [
+    {
+      "id": "b1b2c3d4-2222-4000-8000-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 20 * * 0"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b1b2c3d4-2222-4000-8000-000000000002",
+      "name": "Fetch Open Opportunities",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [250, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM opportunities WHERE discovered_at > NOW()-INTERVAL '7 days' AND status='open' ORDER BY relevance_score ASC, deadline ASC NULLS LAST"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "b1b2c3d4-2222-4000-8000-000000000003",
+      "name": "Format Markdown Table",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 0],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst rows = items.map(i => i.json);\nconst dateStr = new Date().toISOString().split('T')[0];\n\nlet md = `# Weekly Funding Digest - ${dateStr}\\n\\n`;\nmd += `**${rows.length} open opportunities discovered this week**\\n\\n`;\n\nif (rows.length === 0) {\n  md += '_No new funding opportunities discovered this week._\\n';\n} else {\n  md += '| Title | Funder | Region | Deadline | URL |\\n';\n  md += '|-------|--------|--------|----------|-----|\\n';\n  for (const row of rows) {\n    const title = (row.title || 'N/A').replace(/\\|/g, '\\\\|');\n    const funder = (row.funder || 'N/A').replace(/\\|/g, '\\\\|');\n    const region = (row.region || 'N/A').replace(/\\|/g, '\\\\|');\n    const deadline = row.deadline ? new Date(row.deadline).toISOString().split('T')[0] : 'TBD';\n    const url = row.url || '';\n    md += `| ${title} | ${funder} | ${region} | ${deadline} | ${url} |\\n`;\n  }\n}\n\nreturn [{ json: { markdown: md, dateStr, count: rows.length } }];"
+      }
+    },
+    {
+      "id": "b1b2c3d4-2222-4000-8000-000000000004",
+      "name": "Write Digest File",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [750, 0],
+      "parameters": {
+        "fileName": "={{ '/srv/shared/digests/funding-' + $json.dateStr + '.md' }}",
+        "dataPropertyName": "data"
+      }
+    },
+    {
+      "id": "b1b2c3d4-2222-4000-8000-000000000005",
+      "name": "Insert Digest Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1000, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ \"INSERT INTO digests (digest_type, file_path, generated_at, item_count, notes) VALUES ('funding', '/srv/shared/digests/funding-\" + $json.dateStr + \".md', NOW(), \" + $json.count + \", 'Weekly funding digest generated')\" }}"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [{ "node": "Fetch Open Opportunities", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Open Opportunities": {
+      "main": [
+        [{ "node": "Format Markdown Table", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Markdown Table": {
+      "main": [
+        [{ "node": "Write Digest File", "type": "main", "index": 0 }]
+      ]
+    },
+    "Write Digest File": {
+      "main": [
+        [{ "node": "Insert Digest Record", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}

@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: workhorse-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: workhorse
+      POSTGRES_USER: workhorse_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_secure}   # CHANGE THIS BEFORE DEPLOYING
+    volumes:
+      - /srv/core/postgres:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"    # 5433 externally to avoid SJMS conflict on 5432
+    command: >
+      postgres
+        -c shared_buffers=128MB
+        -c effective_cache_size=256MB
+        -c work_mem=4MB
+        -c max_connections=20
+        -c wal_buffers=8MB
+        -c checkpoint_completion_target=0.9
+        -c random_page_cost=1.1
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: workhorse-n8n
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "5678:5678"
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=workhorse
+      - DB_POSTGRESDB_USER=workhorse_user
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:-changeme_secure}   # CHANGE THIS BEFORE DEPLOYING
+      - DB_POSTGRESDB_SCHEMA=n8n_internal
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-changeme_n8n}          # CHANGE THIS BEFORE DEPLOYING
+      - N8N_HOST=0.0.0.0
+      - GENERIC_TIMEZONE=Europe/Zurich
+      - N8N_EXECUTIONS_PROCESS=main
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=72
+      - N8N_METRICS=false
+    volumes:
+      - /srv/core/n8n:/home/node/.n8n
+      - /srv/projects:/srv/projects
+      - /srv/shared:/srv/shared

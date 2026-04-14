@@ -1,0 +1,197 @@
+{
+  "name": "Funding Delta Scan",
+  "nodes": [
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000002",
+      "name": "Set URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0],
+      "parameters": {
+        "jsCode": "return [\n  { json: { url: 'https://www.ukri.org/opportunity/' } },\n  { json: { url: 'https://www.gov.wales/funding-and-grants' } },\n  { json: { url: 'https://www.innosuisse.ch/inno/en/home/funding-and-support.html' } },\n  { json: { url: 'https://www.startupwales.com/funding' } }\n];"
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000003",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [440, 0],
+      "parameters": {
+        "batchSize": 1
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000004",
+      "name": "Fetch Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "method": "GET",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000005",
+      "name": "Compute SHA256 Hash",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 0],
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const body = typeof item.json.data === 'string' ? item.json.data : JSON.stringify(item.json.data || item.json);\n  const hash = crypto.createHash('sha256').update(body).digest('hex');\n  results.push({\n    json: {\n      url: item.json.url || $('Split In Batches').first().json.url,\n      content_hash: hash,\n      body_length: body.length,\n      fetched_at: new Date().toISOString()\n    }\n  });\n}\n\nreturn results;"
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000006",
+      "name": "Get Last Hash",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1100, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT content_hash FROM captures WHERE source_url = '{{ $json.url }}' ORDER BY captured_at DESC LIMIT 1;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000007",
+      "name": "Hash Changed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1320, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "condition-1",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              },
+              "leftValue": "={{ $('Compute SHA256 Hash').first().json.content_hash }}",
+              "rightValue": "={{ $('Get Last Hash').first().json.content_hash }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000008",
+      "name": "Insert Capture & Opportunity",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1540, -100],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH new_capture AS (\n  INSERT INTO captures (source_url, content_hash, captured_at)\n  VALUES (\n    '{{ $('Compute SHA256 Hash').first().json.url }}',\n    '{{ $('Compute SHA256 Hash').first().json.content_hash }}',\n    NOW()\n  )\n  RETURNING id\n)\nINSERT INTO opportunities (title, url, opp_type, in_review_queue, source_capture_id, created_at)\nSELECT\n  'Funding page change detected: ' || '{{ $('Compute SHA256 Hash').first().json.url }}',\n  '{{ $('Compute SHA256 Hash').first().json.url }}',\n  'funding',\n  true,\n  new_capture.id,\n  NOW()\nFROM new_capture;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-1111-4000-8000-000000000009",
+      "name": "Loop Back",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 0],
+      "parameters": {
+        "jsCode": "// No-op: route back to SplitInBatches for next item\nreturn $input.all();"
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [{ "node": "Set URLs", "type": "main", "index": 0 }]
+      ]
+    },
+    "Set URLs": {
+      "main": [
+        [{ "node": "Split In Batches", "type": "main", "index": 0 }]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [{ "node": "Fetch Page", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Fetch Page": {
+      "main": [
+        [{ "node": "Compute SHA256 Hash", "type": "main", "index": 0 }]
+      ]
+    },
+    "Compute SHA256 Hash": {
+      "main": [
+        [{ "node": "Get Last Hash", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Last Hash": {
+      "main": [
+        [{ "node": "Hash Changed?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Hash Changed?": {
+      "main": [
+        [{ "node": "Insert Capture & Opportunity", "type": "main", "index": 0 }],
+        [{ "node": "Loop Back", "type": "main", "index": 0 }]
+      ]
+    },
+    "Insert Capture & Opportunity": {
+      "main": [
+        [{ "node": "Loop Back", "type": "main", "index": 0 }]
+      ]
+    },
+    "Loop Back": {
+      "main": [
+        [{ "node": "Split In Batches", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}

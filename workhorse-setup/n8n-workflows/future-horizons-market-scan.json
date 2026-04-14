@@ -1,0 +1,148 @@
+{
+  "name": "Future Horizons Market Scan",
+  "nodes": [
+    {
+      "id": "f6a7b8c9-6666-4000-8000-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7,
+              "triggerAtMinute": 0,
+              "triggerAtDay": [2, 5]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "f6a7b8c9-6666-4000-8000-000000000002",
+      "name": "Fetch EdSurge RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, -100],
+      "parameters": {
+        "url": "https://edsurge.com/feed",
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "f6a7b8c9-6666-4000-8000-000000000003",
+      "name": "Fetch ProductHunt Edu RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 100],
+      "parameters": {
+        "url": "https://www.producthunt.com/feed?category=education",
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "f6a7b8c9-6666-4000-8000-000000000004",
+      "name": "Parse EdSurge Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, -100],
+      "parameters": {
+        "jsCode": "const xml = $input.first().json.body || '';\nconst results = [];\n\n// Parse RSS items from XML\nconst itemPattern = /<item>([\\s\\S]*?)<\\/item>/gi;\nlet itemMatch;\n\nwhile ((itemMatch = itemPattern.exec(xml)) !== null) {\n  const itemXml = itemMatch[1];\n\n  const titleMatch = itemXml.match(/<title><!\\[CDATA\\[([^\\]]*?)\\]\\]>|<title>([^<]*?)<\\/title>/);\n  const linkMatch = itemXml.match(/<link>([^<]*?)<\\/link>/);\n  const pubDateMatch = itemXml.match(/<pubDate>([^<]*?)<\\/pubDate>/);\n  const descMatch = itemXml.match(/<description><!\\[CDATA\\[([^\\]]*?)\\]\\]>|<description>([^<]*?)<\\/description>/);\n\n  const title = titleMatch ? (titleMatch[1] || titleMatch[2] || '').trim() : 'Untitled';\n  const link = linkMatch ? linkMatch[1].trim() : '';\n  const pubDate = pubDateMatch ? pubDateMatch[1].trim() : '';\n  const description = descMatch ? (descMatch[1] || descMatch[2] || '').trim() : '';\n\n  if (title && link) {\n    results.push({\n      json: {\n        title,\n        link,\n        pub_date: pubDate,\n        description: description.substring(0, 500),\n        source: 'edsurge',\n        signal_type: 'trend'\n      }\n    });\n  }\n}\n\nreturn results.length > 0 ? results : [{ json: { title: 'No items', link: '', source: 'edsurge', signal_type: 'trend' } }];"
+      }
+    },
+    {
+      "id": "f6a7b8c9-6666-4000-8000-000000000005",
+      "name": "Parse ProductHunt Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 100],
+      "parameters": {
+        "jsCode": "const xml = $input.first().json.body || '';\nconst results = [];\n\n// Parse RSS items from XML\nconst itemPattern = /<item>([\\s\\S]*?)<\\/item>/gi;\nlet itemMatch;\n\nwhile ((itemMatch = itemPattern.exec(xml)) !== null) {\n  const itemXml = itemMatch[1];\n\n  const titleMatch = itemXml.match(/<title><!\\[CDATA\\[([^\\]]*?)\\]\\]>|<title>([^<]*?)<\\/title>/);\n  const linkMatch = itemXml.match(/<link>([^<]*?)<\\/link>/);\n  const pubDateMatch = itemXml.match(/<pubDate>([^<]*?)<\\/pubDate>/);\n  const descMatch = itemXml.match(/<description><!\\[CDATA\\[([^\\]]*?)\\]\\]>|<description>([^<]*?)<\\/description>/);\n\n  const title = titleMatch ? (titleMatch[1] || titleMatch[2] || '').trim() : 'Untitled';\n  const link = linkMatch ? linkMatch[1].trim() : '';\n  const pubDate = pubDateMatch ? pubDateMatch[1].trim() : '';\n  const description = descMatch ? (descMatch[1] || descMatch[2] || '').trim() : '';\n\n  if (title && link) {\n    results.push({\n      json: {\n        title,\n        link,\n        pub_date: pubDate,\n        description: description.substring(0, 500),\n        source: 'producthunt',\n        signal_type: 'product_launch'\n      }\n    });\n  }\n}\n\nreturn results.length > 0 ? results : [{ json: { title: 'No items', link: '', source: 'producthunt', signal_type: 'product_launch' } }];"
+      }
+    },
+    {
+      "id": "f6a7b8c9-6666-4000-8000-000000000006",
+      "name": "Merge Signals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [740, 0],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => ({\n  json: { ...item.json }\n}));"
+      }
+    },
+    {
+      "id": "f6a7b8c9-6666-4000-8000-000000000007",
+      "name": "Insert Market Signals",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [980, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO market_signals (title, source_url, signal_type, source, project, description, published_at, created_at)\nVALUES (\n  '{{ $json.title }}',\n  '{{ $json.link }}',\n  '{{ $json.signal_type }}',\n  '{{ $json.source }}',\n  'future-horizons',\n  '{{ $json.description }}',\n  CASE WHEN '{{ $json.pub_date }}' = '' THEN NOW() ELSE '{{ $json.pub_date }}'::timestamptz END,\n  NOW()\n)\nON CONFLICT (source_url) DO NOTHING;"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          { "node": "Fetch EdSurge RSS", "type": "main", "index": 0 },
+          { "node": "Fetch ProductHunt Edu RSS", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch EdSurge RSS": {
+      "main": [
+        [{ "node": "Parse EdSurge Items", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch ProductHunt Edu RSS": {
+      "main": [
+        [{ "node": "Parse ProductHunt Items", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse EdSurge Items": {
+      "main": [
+        [{ "node": "Merge Signals", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse ProductHunt Items": {
+      "main": [
+        [{ "node": "Merge Signals", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge Signals": {
+      "main": [
+        [{ "node": "Insert Market Signals", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}

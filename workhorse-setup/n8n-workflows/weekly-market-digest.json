@@ -1,0 +1,82 @@
+{
+  "name": "Weekly Market Digest",
+  "nodes": [
+    {
+      "id": "c1b2c3d4-3333-4000-8000-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 20 * * 0"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-3333-4000-8000-000000000002",
+      "name": "Fetch Market Signals",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [250, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ms.*, p.display_name FROM market_signals ms JOIN projects p ON ms.project_id = p.id WHERE ms.discovered_at > NOW()-INTERVAL '7 days' ORDER BY p.display_name, ms.discovered_at DESC"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "c1b2c3d4-3333-4000-8000-000000000003",
+      "name": "Format Markdown Sections",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 0],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst rows = items.map(i => i.json);\nconst dateStr = new Date().toISOString().split('T')[0];\n\n// Group by project display_name\nconst grouped = {};\nfor (const row of rows) {\n  const project = row.display_name || 'Unknown Project';\n  if (!grouped[project]) {\n    grouped[project] = [];\n  }\n  grouped[project].push(row);\n}\n\nlet md = `# Weekly Market Digest - ${dateStr}\\n\\n`;\nmd += `**${rows.length} market signals across ${Object.keys(grouped).length} projects**\\n\\n`;\n\nif (rows.length === 0) {\n  md += '_No new market signals discovered this week._\\n';\n} else {\n  for (const [project, signals] of Object.entries(grouped)) {\n    md += `## ${project}\\n\\n`;\n    for (const signal of signals) {\n      const discoveredAt = signal.discovered_at ? new Date(signal.discovered_at).toISOString().split('T')[0] : 'unknown';\n      md += `- **${signal.signal_type || 'signal'}** (${discoveredAt}): ${signal.summary || signal.title || 'No summary'}\\n`;\n      if (signal.source_url) {\n        md += `  - Source: ${signal.source_url}\\n`;\n      }\n      if (signal.relevance_score != null) {\n        md += `  - Relevance: ${signal.relevance_score}/10\\n`;\n      }\n    }\n    md += '\\n';\n  }\n}\n\nreturn [{ json: { markdown: md, dateStr, count: rows.length } }];"
+      }
+    },
+    {
+      "id": "c1b2c3d4-3333-4000-8000-000000000004",
+      "name": "Write Digest File",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [750, 0],
+      "parameters": {
+        "fileName": "={{ '/srv/shared/digests/market-' + $json.dateStr + '.md' }}",
+        "dataPropertyName": "data"
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [{ "node": "Fetch Market Signals", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Market Signals": {
+      "main": [
+        [{ "node": "Format Markdown Sections", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Markdown Sections": {
+      "main": [
+        [{ "node": "Write Digest File", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}

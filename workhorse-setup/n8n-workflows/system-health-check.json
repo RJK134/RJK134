@@ -1,0 +1,146 @@
+{
+  "name": "System Health Check",
+  "nodes": [
+    {
+      "id": "e5f6a7b8-5555-4000-8000-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 5,
+              "triggerAtMinute": 45
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e5f6a7b8-5555-4000-8000-000000000002",
+      "name": "Run Health Check Script",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [220, 0],
+      "parameters": {
+        "command": "bash /srv/core/health-check.sh"
+      }
+    },
+    {
+      "id": "e5f6a7b8-5555-4000-8000-000000000003",
+      "name": "Parse Health JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0],
+      "parameters": {
+        "jsCode": "const stdout = $input.first().json.stdout;\nlet health;\n\ntry {\n  health = JSON.parse(stdout);\n} catch (e) {\n  return [{\n    json: {\n      error: 'Failed to parse health-check output',\n      raw_output: stdout,\n      disk_used_pct: 0,\n      backup_age_hours: 0,\n      cpu_load: 0,\n      memory_used_pct: 0,\n      pg_connections: 0,\n      n8n_status: 'unknown',\n      checked_at: new Date().toISOString()\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    disk_used_pct: health.disk_used_pct || 0,\n    backup_age_hours: health.backup_age_hours || 0,\n    cpu_load: health.cpu_load || 0,\n    memory_used_pct: health.memory_used_pct || 0,\n    pg_connections: health.pg_connections || 0,\n    n8n_status: health.n8n_status || 'unknown',\n    uptime_seconds: health.uptime_seconds || 0,\n    checked_at: new Date().toISOString()\n  }\n}];"
+      }
+    },
+    {
+      "id": "e5f6a7b8-5555-4000-8000-000000000004",
+      "name": "Insert Health Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [660, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO health_logs (disk_used_pct, backup_age_hours, cpu_load, memory_used_pct, pg_connections, n8n_status, uptime_seconds, checked_at)\nVALUES (\n  {{ $json.disk_used_pct }},\n  {{ $json.backup_age_hours }},\n  {{ $json.cpu_load }},\n  {{ $json.memory_used_pct }},\n  {{ $json.pg_connections }},\n  '{{ $json.n8n_status }}',\n  {{ $json.uptime_seconds }},\n  NOW()\n);"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "e5f6a7b8-5555-4000-8000-000000000005",
+      "name": "Threshold Breached?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [880, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "or",
+          "conditions": [
+            {
+              "id": "condition-disk",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              },
+              "leftValue": "={{ $json.disk_used_pct }}",
+              "rightValue": 85
+            },
+            {
+              "id": "condition-backup",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              },
+              "leftValue": "={{ $json.backup_age_hours }}",
+              "rightValue": 26
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e5f6a7b8-5555-4000-8000-000000000006",
+      "name": "Insert System Alert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1100, -100],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO alerts (alert_type, severity, message, metadata, created_at)\nVALUES (\n  'system_warning',\n  'high',\n  CASE\n    WHEN {{ $json.disk_used_pct }} > 85 AND {{ $json.backup_age_hours }} > 26\n      THEN 'CRITICAL: Disk usage at ' || {{ $json.disk_used_pct }} || '% AND backup is ' || {{ $json.backup_age_hours }} || ' hours old'\n    WHEN {{ $json.disk_used_pct }} > 85\n      THEN 'WARNING: Disk usage at ' || {{ $json.disk_used_pct }} || '%'\n    ELSE 'WARNING: Backup is ' || {{ $json.backup_age_hours }} || ' hours old (threshold: 26h)'\n  END,\n  json_build_object(\n    'disk_used_pct', {{ $json.disk_used_pct }},\n    'backup_age_hours', {{ $json.backup_age_hours }},\n    'cpu_load', {{ $json.cpu_load }},\n    'memory_used_pct', {{ $json.memory_used_pct }}\n  ),\n  NOW()\n);"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [{ "node": "Run Health Check Script", "type": "main", "index": 0 }]
+      ]
+    },
+    "Run Health Check Script": {
+      "main": [
+        [{ "node": "Parse Health JSON", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Health JSON": {
+      "main": [
+        [{ "node": "Insert Health Log", "type": "main", "index": 0 }]
+      ]
+    },
+    "Insert Health Log": {
+      "main": [
+        [{ "node": "Threshold Breached?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Threshold Breached?": {
+      "main": [
+        [{ "node": "Insert System Alert", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}

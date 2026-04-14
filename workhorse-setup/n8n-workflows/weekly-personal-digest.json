@@ -1,0 +1,82 @@
+{
+  "name": "Weekly Personal Digest",
+  "nodes": [
+    {
+      "id": "d1b2c3d4-4444-4000-8000-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 20 * * 0"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "d1b2c3d4-4444-4000-8000-000000000002",
+      "name": "Fetch Personal Opportunities",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [250, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT o.*, p.display_name FROM opportunities o JOIN projects p ON o.project_id = p.id WHERE p.slug IN ('film-opps','career-opps') AND o.discovered_at > NOW()-INTERVAL '7 days' ORDER BY p.slug, o.relevance_score ASC"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "d1b2c3d4-4444-4000-8000-000000000003",
+      "name": "Format Personal Roundup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 0],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst rows = items.map(i => i.json);\nconst dateStr = new Date().toISOString().split('T')[0];\n\n// Group by project\nconst grouped = {};\nfor (const row of rows) {\n  const project = row.display_name || 'Unknown';\n  if (!grouped[project]) {\n    grouped[project] = [];\n  }\n  grouped[project].push(row);\n}\n\nlet md = `# Weekly Personal Roundup - ${dateStr}\\n\\n`;\nmd += `**${rows.length} opportunities across ${Object.keys(grouped).length} categories**\\n\\n`;\n\nif (rows.length === 0) {\n  md += '_No new personal opportunities discovered this week._\\n';\n} else {\n  for (const [project, opps] of Object.entries(grouped)) {\n    md += `## ${project}\\n\\n`;\n    for (const opp of opps) {\n      const deadline = opp.deadline ? new Date(opp.deadline).toISOString().split('T')[0] : 'No deadline';\n      const score = opp.relevance_score != null ? ` (relevance: ${opp.relevance_score})` : '';\n      md += `### ${opp.title || 'Untitled'}${score}\\n\\n`;\n      if (opp.funder) md += `- **Funder:** ${opp.funder}\\n`;\n      if (opp.region) md += `- **Region:** ${opp.region}\\n`;\n      md += `- **Deadline:** ${deadline}\\n`;\n      if (opp.url) md += `- **Link:** ${opp.url}\\n`;\n      if (opp.summary) md += `\\n${opp.summary}\\n`;\n      md += '\\n';\n    }\n  }\n}\n\nreturn [{ json: { markdown: md, dateStr, count: rows.length } }];"
+      }
+    },
+    {
+      "id": "d1b2c3d4-4444-4000-8000-000000000004",
+      "name": "Write Digest File",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [750, 0],
+      "parameters": {
+        "fileName": "={{ '/srv/shared/digests/personal-' + $json.dateStr + '.md' }}",
+        "dataPropertyName": "data"
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [{ "node": "Fetch Personal Opportunities", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Personal Opportunities": {
+      "main": [
+        [{ "node": "Format Personal Roundup", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Personal Roundup": {
+      "main": [
+        [{ "node": "Write Digest File", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}

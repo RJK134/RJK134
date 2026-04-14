@@ -1,0 +1,95 @@
+{
+  "name": "Weekly DB Cleanup",
+  "nodes": [
+    {
+      "id": "g1b2c3d4-7777-4000-8000-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 1 * * 0"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "g1b2c3d4-7777-4000-8000-000000000002",
+      "name": "Delete Old Captures",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [250, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM captures WHERE captured_at < NOW()-INTERVAL '90 days' AND content_changed = false"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "g1b2c3d4-7777-4000-8000-000000000003",
+      "name": "Vacuum Analyze Tables",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [500, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "VACUUM ANALYZE captures; VACUUM ANALYZE entities; VACUUM ANALYZE opportunities; VACUUM ANALYZE market_signals"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "g1b2c3d4-7777-4000-8000-000000000004",
+      "name": "Log Cleanup Completion",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [750, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO health_logs (notes) VALUES ('Weekly cleanup completed at ' || NOW())"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [{ "node": "Delete Old Captures", "type": "main", "index": 0 }]
+      ]
+    },
+    "Delete Old Captures": {
+      "main": [
+        [{ "node": "Vacuum Analyze Tables", "type": "main", "index": 0 }]
+      ]
+    },
+    "Vacuum Analyze Tables": {
+      "main": [
+        [{ "node": "Log Cleanup Completion", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}
