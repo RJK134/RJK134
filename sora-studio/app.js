@@ -138,6 +138,7 @@ function buildPrompt(shot, project) {
   }
 
   if (shot.audio) parts.push(`Audio: ${shot.audio}.`);
+  if (shot.transition) parts.push(`Ends on a ${shot.transition.toLowerCase()} into the next shot.`);
 
   const meta = [
     project.aspectRatio && `${project.aspectRatio} frame`,
