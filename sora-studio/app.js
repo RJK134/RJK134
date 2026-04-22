@@ -484,7 +484,7 @@ function slugify(s) {
 }
 
 function promptFor(shot) {
-  return shot.promptLocked && shot.prompt ? shot.prompt : buildPrompt(shot, state.project);
+  return shot.promptLocked ? (shot.prompt ?? "") : buildPrompt(shot, state.project);
 }
 
 function exportJSON() {
