@@ -185,7 +185,7 @@ function bindProjectInputs() {
       set(v);
       saveState();
       renderDerived();
-      if (path[0] === "project") regenerateActivePromptIfUnlocked();
+      if (path[0] === "project") regenerateAllUnlockedPrompts();
     });
     el.addEventListener("blur", apply);
   });
@@ -230,6 +230,17 @@ function bindShotEditorInputs() {
     });
     el.addEventListener("change", () => el.dispatchEvent(new Event("input", { bubbles: false })));
   });
+}
+
+function regenerateAllUnlockedPrompts() {
+  state.shots.forEach((s) => {
+    if (!s.promptLocked) s.prompt = buildPrompt(s, state.project);
+  });
+  const shot = activeShot();
+  if (shot && !shot.promptLocked && els.promptOutput) {
+    els.promptOutput.value = shot.prompt;
+    updatePromptMeta();
+  }
 }
 
 function regenerateActivePromptIfUnlocked() {
@@ -475,6 +486,10 @@ function slugify(s) {
   return (s || "sora-project").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
+function promptFor(shot) {
+  return shot.promptLocked && shot.prompt ? shot.prompt : buildPrompt(shot, state.project);
+}
+
 function exportJSON() {
   download(`${slugify(state.project.title)}.json`, JSON.stringify(state, null, 2), "application/json");
 }
@@ -511,8 +526,7 @@ function exportBrief() {
     if (s.description) lines.push(`\n${s.description}`);
     if (s.avoid) lines.push(`\n_Avoid: ${s.avoid}_`);
     if (s.notes) lines.push(`\n> Production notes: ${s.notes}`);
-    const prompt = s.prompt || buildPrompt(s, state.project);
-    lines.push(`\n**Sora prompt**\n\n\`\`\`\n${prompt}\n\`\`\``);
+    lines.push(`\n**Sora prompt**\n\n\`\`\`\n${promptFor(s)}\n\`\`\``);
     lines.push("\n---\n");
   });
 
@@ -522,9 +536,8 @@ function exportBrief() {
 function promptsAsPlainText() {
   return state.shots.map((s, i) => {
     const n = String(i + 1).padStart(2, "0");
-    const prompt = s.prompt || buildPrompt(s, state.project);
     const header = `# Shot ${n} — ${s.title || "Untitled"} (${s.duration || 0}s)`;
-    return `${header}\n${prompt}`;
+    return `${header}\n${promptFor(s)}`;
   }).join("\n\n");
 }
 
