@@ -204,7 +204,7 @@ function bindProjectInputs() {
 function bindShotEditorInputs() {
   document.querySelectorAll("[data-field]").forEach((el) => {
     const field = el.getAttribute("data-field");
-    el.addEventListener("input", () => {
+    const handler = () => {
       const shot = activeShot();
       if (!shot) return;
       let val;
@@ -237,7 +237,9 @@ function bindShotEditorInputs() {
       updatePromptMeta();
       renderDerived();
       saveState();
-    });
+    };
+    const evt = el.tagName === "SELECT" ? "change" : "input";
+    el.addEventListener(evt, handler);
   });
 }
 
