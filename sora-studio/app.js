@@ -73,6 +73,7 @@ function loadState() {
     if (!raw) return freshState();
     const parsed = JSON.parse(raw);
     if (!parsed.project || !Array.isArray(parsed.shots)) return freshState();
+    parsed.project = { ...freshState().project, ...parsed.project };
     parsed.shots = parsed.shots.map((s) => ({ ...newShot(), ...s }));
     return parsed;
   } catch (e) {
@@ -241,14 +242,6 @@ function regenerateAllUnlockedPrompts() {
     els.promptOutput.value = shot.prompt;
     updatePromptMeta();
   }
-}
-
-function regenerateActivePromptIfUnlocked() {
-  const shot = activeShot();
-  if (!shot || shot.promptLocked) return;
-  shot.prompt = buildPrompt(shot, state.project);
-  if (els.promptOutput) els.promptOutput.value = shot.prompt;
-  updatePromptMeta();
 }
 
 /* -------------------------- rendering -------------------------- */
@@ -576,6 +569,7 @@ function importJSON(file) {
       const parsed = JSON.parse(reader.result);
       if (!parsed.project || !Array.isArray(parsed.shots)) throw new Error("Invalid file");
       state = parsed;
+      state.project = { ...freshState().project, ...parsed.project };
       state.shots = state.shots.map((s) => ({ ...newShot(), ...s }));
       state.activeShotId = state.shots[0]?.id || null;
       saveState();
