@@ -225,7 +225,7 @@ function bindShotEditorInputs() {
         }
       }
 
-      if (field === "title" || field === "duration" || field === "subject" || field === "action") {
+      if (field === "title" || field === "duration" || field === "subject" || field === "action" || field === "shotType") {
         renderShotList();
       }
       updatePromptMeta();
@@ -641,13 +641,18 @@ function wireKeyboard() {
   document.addEventListener("keydown", (e) => {
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
+    const active = document.activeElement;
+    const inText = active && (
+      active.tagName === "INPUT" ||
+      active.tagName === "TEXTAREA" ||
+      active.isContentEditable
+    );
     if (e.key === "Enter") {
-      const tag = document.activeElement?.tagName;
-      if (tag === "TEXTAREA") return; // allow newlines in textareas
+      if (active?.tagName === "TEXTAREA") return; // allow newlines in textareas
       e.preventDefault();
       addShot(state.activeShotId);
     } else if (e.key.toLowerCase() === "d") {
-      if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+      if (inText) return;
       e.preventDefault();
       duplicateShot();
     }
