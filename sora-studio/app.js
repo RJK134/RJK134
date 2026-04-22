@@ -262,7 +262,7 @@ function renderShotList() {
     node.dataset.id = shot.id;
     node.querySelector(".shot-index").textContent = String(i + 1).padStart(2, "0");
     node.querySelector(".shot-title").textContent = shot.title || "Untitled shot";
-    const sub = [shot.shotType, shot.subject && `· ${shot.subject}`].filter(Boolean).join(" ");
+    const sub = [shot.shotType, shot.subject].filter(Boolean).join(" · ");
     node.querySelector(".shot-sub").textContent = sub || "Describe the shot";
     node.querySelector(".shot-duration").textContent = shot.duration ? `${shot.duration}s` : "—";
     if (shot.id === state.activeShotId) node.classList.add("active");
