@@ -6,12 +6,6 @@
  * ------------------------------------------------------------------ */
 
 const STORAGE_KEY = "sora-studio.v1";
-const SHOT_FIELDS = [
-  "title", "duration", "shotType", "subject", "action", "setting",
-  "timeOfDay", "weather", "lighting", "mood", "camera", "lens",
-  "filmStock", "audio", "transition", "description", "avoid", "notes",
-  "prompt", "promptLocked",
-];
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
@@ -359,7 +353,7 @@ function renderChecks() {
   if (emptyShots.length) list.push({ kind: "warn", text: `${emptyShots.length} shot${emptyShots.length>1?"s":""} missing subject / action.` });
   if (missingCamera.length) list.push({ kind: "info", text: `${missingCamera.length} shot${missingCamera.length>1?"s":""} without a camera move — Sora will default to static.` });
   if (!state.project.styleNotes) list.push({ kind: "info", text: "Tip: fill the style reference to keep characters and palette consistent across shots." });
-  if (list.length === 0 || (list.length === 1 && list[0].kind === "info")) {
+  if (state.shots.length && !list.some((item) => item.kind === "warn")) {
     list.unshift({ kind: "ok", text: "Looks ready to render." });
   }
 
