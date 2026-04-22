@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sora Studio — Video Production Planner</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo-dot"></div>
+      <div>
+        <h1 contenteditable="true" data-bind="project.title">Untitled Project</h1>
+        <input class="logline" data-bind="project.logline" placeholder="One-line logline — what is this film about?" />
+      </div>
+    </div>
+
+    <div class="project-meta">
+      <label>Aspect
+        <select data-bind="project.aspectRatio">
+          <option value="16:9">16:9 Landscape</option>
+          <option value="9:16">9:16 Vertical</option>
+          <option value="1:1">1:1 Square</option>
+          <option value="21:9">21:9 Anamorphic</option>
+          <option value="4:5">4:5 Portrait</option>
+        </select>
+      </label>
+      <label>Resolution
+        <select data-bind="project.resolution">
+          <option value="1080p">1080p</option>
+          <option value="720p">720p</option>
+          <option value="480p">480p</option>
+        </select>
+      </label>
+      <label>House style
+        <select data-bind="project.style">
+          <option value="">None</option>
+          <option>Cinematic anamorphic film</option>
+          <option>Documentary vérité</option>
+          <option>Studio Ghibli anime</option>
+          <option>Claymation stop-motion</option>
+          <option>Retro VHS home video</option>
+          <option>Editorial fashion campaign</option>
+          <option>Noir black-and-white</option>
+          <option>Commercial product hero</option>
+          <option>Found-footage handheld</option>
+          <option>Music video hyperlapse</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="actions">
+      <button data-action="new-project" class="ghost" title="Start fresh">New</button>
+      <button data-action="import" class="ghost">Import JSON</button>
+      <input type="file" id="file-input" accept="application/json" hidden />
+      <button data-action="export-json" class="ghost">Export JSON</button>
+      <button data-action="export-brief" class="ghost">Export brief</button>
+      <button data-action="export-prompts" class="primary">Copy all prompts</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="shotlist">
+      <div class="shotlist-head">
+        <h2>Shot list</h2>
+        <span class="runtime" data-bind-text="project.runtime"></span>
+      </div>
+      <ol id="shots" class="shots"></ol>
+      <button data-action="add-shot" class="add-shot">+ Add shot</button>
+      <div class="shotlist-foot">
+        <button data-action="duplicate-shot" class="ghost small">Duplicate</button>
+        <button data-action="delete-shot" class="ghost small danger">Delete</button>
+      </div>
+    </aside>
+
+    <section class="editor" id="editor">
+      <div class="editor-empty" id="editor-empty">
+        <p>Select or add a shot to start writing.</p>
+      </div>
+
+      <div class="editor-form" id="editor-form" hidden>
+        <div class="row">
+          <label class="grow">
+            <span>Shot title</span>
+            <input data-field="title" placeholder="e.g. Opening — neon rooftop reveal" />
+          </label>
+          <label>
+            <span>Duration (s)</span>
+            <input data-field="duration" type="number" min="1" max="60" step="1" />
+          </label>
+          <label>
+            <span>Shot type</span>
+            <select data-field="shotType">
+              <option value="">—</option>
+              <option>Extreme wide</option>
+              <option>Wide</option>
+              <option>Medium wide</option>
+              <option>Medium</option>
+              <option>Medium close-up</option>
+              <option>Close-up</option>
+              <option>Extreme close-up</option>
+              <option>Over the shoulder</option>
+              <option>POV</option>
+              <option>Aerial / drone</option>
+              <option>Top-down</option>
+              <option>Insert</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="row">
+          <label class="grow">
+            <span>Subject</span>
+            <input data-field="subject" placeholder="Who or what is in frame?" />
+          </label>
+          <label class="grow">
+            <span>Action</span>
+            <input data-field="action" placeholder="What are they doing?" />
+          </label>
+        </div>
+
+        <div class="row">
+          <label class="grow">
+            <span>Setting / location</span>
+            <input data-field="setting" placeholder="Where and when?" />
+          </label>
+          <label>
+            <span>Time of day</span>
+            <select data-field="timeOfDay">
+              <option value="">—</option>
+              <option>Dawn</option>
+              <option>Morning</option>
+              <option>Midday</option>
+              <option>Golden hour</option>
+              <option>Dusk</option>
+              <option>Blue hour</option>
+              <option>Night</option>
+              <option>Overcast</option>
+            </select>
+          </label>
+          <label>
+            <span>Weather</span>
+            <select data-field="weather">
+              <option value="">—</option>
+              <option>Clear</option>
+              <option>Cloudy</option>
+              <option>Fog / mist</option>
+              <option>Rain</option>
+              <option>Heavy rain</option>
+              <option>Snow</option>
+              <option>Storm</option>
+              <option>Humid haze</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="row">
+          <label class="grow">
+            <span>Lighting</span>
+            <input data-field="lighting" placeholder="Key light, contrast, practical sources" list="lighting-presets" />
+            <datalist id="lighting-presets">
+              <option>Soft volumetric key from window</option>
+              <option>Hard top-down spotlight, deep shadows</option>
+              <option>Mixed neon practicals, teal and magenta</option>
+              <option>Firelight flicker, warm amber</option>
+              <option>Overcast soft daylight, no shadows</option>
+              <option>Rembrandt sidelight on face</option>
+              <option>Silhouette against bright window</option>
+              <option>Moonlight blue, stark highlights</option>
+            </datalist>
+          </label>
+          <label class="grow">
+            <span>Mood</span>
+            <input data-field="mood" placeholder="Tense, tender, euphoric, eerie…" />
+          </label>
+        </div>
+
+        <div class="row">
+          <label class="grow">
+            <span>Camera movement</span>
+            <input data-field="camera" placeholder="Dolly in, slow push, whip pan…" list="camera-presets" />
+            <datalist id="camera-presets">
+              <option>Static locked-off tripod</option>
+              <option>Slow dolly in toward subject</option>
+              <option>Slow dolly out revealing environment</option>
+              <option>Smooth tracking shot alongside subject</option>
+              <option>Handheld follow with natural shake</option>
+              <option>Crane up from ground to reveal skyline</option>
+              <option>Whip pan left to right</option>
+              <option>Orbit around subject, counterclockwise</option>
+              <option>POV walking forward</option>
+              <option>Drone pullback reveal</option>
+              <option>Vertigo dolly zoom</option>
+            </datalist>
+          </label>
+          <label>
+            <span>Lens</span>
+            <select data-field="lens">
+              <option value="">—</option>
+              <option>14mm ultra-wide</option>
+              <option>24mm wide</option>
+              <option>35mm</option>
+              <option>50mm standard</option>
+              <option>85mm portrait</option>
+              <option>135mm telephoto</option>
+              <option>Anamorphic 40mm</option>
+              <option>Macro 100mm</option>
+              <option>Fisheye</option>
+            </select>
+          </label>
+          <label>
+            <span>Film stock</span>
+            <select data-field="filmStock">
+              <option value="">—</option>
+              <option>Kodak Vision3 500T</option>
+              <option>Kodak Portra 400</option>
+              <option>CineStill 800T</option>
+              <option>16mm grain</option>
+              <option>Super 8</option>
+              <option>Polaroid</option>
+              <option>Digital Arri Alexa</option>
+              <option>Digital RED Dragon</option>
+              <option>iPhone footage</option>
+              <option>VHS tape</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="row">
+          <label class="grow">
+            <span>Audio direction</span>
+            <input data-field="audio" placeholder="Diegetic ambience, score cue, SFX…" />
+          </label>
+          <label class="grow">
+            <span>Transition out</span>
+            <select data-field="transition">
+              <option value="">Hard cut</option>
+              <option>Match cut</option>
+              <option>J-cut (audio leads)</option>
+              <option>L-cut (audio trails)</option>
+              <option>Smash cut</option>
+              <option>Cross dissolve</option>
+              <option>Whip pan</option>
+              <option>Fade to black</option>
+              <option>Fade to white</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="block">
+          <span>Description (free text — richer detail wins)</span>
+          <textarea data-field="description" rows="4" placeholder="Paint the scene. Include concrete nouns, textures, motion, color palette, anything you want Sora to anchor on."></textarea>
+        </label>
+
+        <label class="block">
+          <span>Avoid / negative direction</span>
+          <input data-field="avoid" placeholder="No text overlays, no logos, no fast cuts…" />
+        </label>
+
+        <label class="block">
+          <span>Notes to self (not sent to Sora)</span>
+          <textarea data-field="notes" rows="2" placeholder="Production notes, references, alternative takes…"></textarea>
+        </label>
+
+        <div class="prompt-pane">
+          <div class="prompt-head">
+            <h3>Generated prompt</h3>
+            <div class="prompt-actions">
+              <label class="switch">
+                <input type="checkbox" data-field="promptLocked" />
+                <span>Lock manual edits</span>
+              </label>
+              <button data-action="regenerate-prompt" class="ghost small">Regenerate</button>
+              <button data-action="copy-prompt" class="primary small">Copy</button>
+            </div>
+          </div>
+          <textarea id="prompt-output" data-field="prompt" rows="6" placeholder="Fill the fields above — the prompt assembles here. Toggle 'Lock manual edits' to hand-tune it."></textarea>
+          <div class="prompt-meta">
+            <span data-bind-text="shot.charCount">0 chars</span>
+            <span data-bind-text="shot.wordCount">0 words</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="summary">
+      <h2>Production summary</h2>
+      <dl class="summary-list">
+        <dt>Shots</dt><dd data-bind-text="project.shotCount">0</dd>
+        <dt>Total runtime</dt><dd data-bind-text="project.runtime">0s</dd>
+        <dt>Longest shot</dt><dd data-bind-text="project.longestShot">—</dd>
+        <dt>Aspect</dt><dd data-bind-text="project.aspectRatio">16:9</dd>
+        <dt>Resolution</dt><dd data-bind-text="project.resolution">1080p</dd>
+      </dl>
+
+      <h3>Timeline</h3>
+      <div id="timeline" class="timeline"></div>
+
+      <h3>Continuity checks</h3>
+      <ul id="checks" class="checks"></ul>
+
+      <h3>Style reference</h3>
+      <textarea data-bind="project.styleNotes" rows="4" placeholder="Consistent characters, palette, recurring motifs, wardrobe — anything that should carry across every shot."></textarea>
+    </aside>
+  </main>
+
+  <footer class="footer">
+    <span class="save-indicator" id="save-indicator">Saved locally</span>
+    <span class="hint">Drag shots to reorder · <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Enter</kbd> new shot · <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate</span>
+  </footer>
+
+  <template id="shot-item-template">
+    <li class="shot-item" draggable="true">
+      <div class="shot-index"></div>
+      <div class="shot-body">
+        <div class="shot-title"></div>
+        <div class="shot-sub"></div>
+      </div>
+      <div class="shot-duration"></div>
+    </li>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
