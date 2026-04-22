@@ -114,40 +114,45 @@ function activeShot() {
 
 /* -------------------------- prompt assembly -------------------------- */
 
+function sentence(s) {
+  const trimmed = (s ?? "").trim();
+  if (!trimmed) return "";
+  return /[.!?]$/.test(trimmed) ? trimmed : trimmed + ".";
+}
+
 function buildPrompt(shot, project) {
   const parts = [];
+  const push = (s) => { const out = sentence(s); if (out) parts.push(out); };
+
   const framing = [shot.shotType, shot.lens && `${shot.lens} lens`].filter(Boolean).join(", ");
-  if (framing) parts.push(framing + ".");
+  push(framing);
 
   const subjectClause = [shot.subject, shot.action].filter(Boolean).join(" ");
   const where = [shot.setting, shot.timeOfDay, shot.weather].filter(Boolean).join(", ");
-  if (subjectClause && where) parts.push(`${subjectClause} — ${where}.`);
-  else if (subjectClause) parts.push(subjectClause + ".");
-  else if (where) parts.push(where + ".");
+  if (subjectClause && where) push(`${subjectClause} — ${where}`);
+  else if (subjectClause) push(subjectClause);
+  else if (where) push(where);
 
-  if (shot.description) parts.push(shot.description.trim().replace(/\.?$/, "."));
-  if (shot.lighting) parts.push(`Lighting: ${shot.lighting}.`);
-  if (shot.mood) parts.push(`Mood: ${shot.mood}.`);
-  if (shot.camera) parts.push(`Camera: ${shot.camera}.`);
+  push(shot.description);
+  if (shot.lighting) push(`Lighting: ${shot.lighting}`);
+  if (shot.mood) push(`Mood: ${shot.mood}`);
+  if (shot.camera) push(`Camera: ${shot.camera}`);
 
   const grain = [shot.filmStock, project.style].filter(Boolean).join(" · ");
-  if (grain) parts.push(`Look: ${grain}.`);
+  if (grain) push(`Look: ${grain}`);
+  if (project.styleNotes) push(`Continuity: ${project.styleNotes.trim()}`);
 
-  if (project.styleNotes) {
-    parts.push(`Continuity: ${project.styleNotes.trim().replace(/\.?$/, ".")}`);
-  }
-
-  if (shot.audio) parts.push(`Audio: ${shot.audio}.`);
-  if (shot.transition) parts.push(`Ends on a ${shot.transition.toLowerCase()} into the next shot.`);
+  if (shot.audio) push(`Audio: ${shot.audio}`);
+  if (shot.transition) push(`Ends on a ${shot.transition.toLowerCase()} into the next shot`);
 
   const meta = [
     project.aspectRatio && `${project.aspectRatio} frame`,
     project.resolution,
     shot.duration && `${shot.duration}-second clip`,
   ].filter(Boolean).join(", ");
-  if (meta) parts.push(meta + ".");
+  push(meta);
 
-  if (shot.avoid) parts.push(`Avoid: ${shot.avoid}.`);
+  if (shot.avoid) push(`Avoid: ${shot.avoid}`);
 
   return parts.join(" ").replace(/\s+/g, " ").trim();
 }
@@ -233,7 +238,6 @@ function bindShotEditorInputs() {
       renderDerived();
       saveState();
     });
-    el.addEventListener("change", () => el.dispatchEvent(new Event("input", { bubbles: false })));
   });
 }
 
