@@ -114,6 +114,8 @@ function activeShot() {
 
 /* -------------------------- prompt assembly -------------------------- */
 
+const PROJECT_PROMPT_FIELDS = new Set(["aspectRatio", "resolution", "style", "styleNotes"]);
+
 function sentence(s) {
   const trimmed = (s ?? "").trim();
   if (!trimmed) return "";
@@ -195,7 +197,7 @@ function bindProjectInputs() {
       set(v);
       saveState();
       renderDerived();
-      if (path[0] === "project") regenerateAllUnlockedPrompts();
+      if (path[0] === "project" && PROJECT_PROMPT_FIELDS.has(path[1])) regenerateAllUnlockedPrompts();
     });
     el.addEventListener("blur", apply);
   });
@@ -654,12 +656,11 @@ function wireKeyboard() {
       active.tagName === "TEXTAREA" ||
       active.isContentEditable
     );
+    if (inText) return;
     if (e.key === "Enter") {
-      if (active?.tagName === "TEXTAREA") return; // allow newlines in textareas
       e.preventDefault();
       addShot(state.activeShotId);
     } else if (e.key.toLowerCase() === "d") {
-      if (inText) return;
       e.preventDefault();
       duplicateShot();
     }
