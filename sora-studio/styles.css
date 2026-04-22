@@ -347,6 +347,13 @@ textarea { resize: vertical; font-family: inherit; line-height: 1.55; }
 .save-indicator { font-family: var(--mono); }
 .save-indicator.dirty { color: var(--warn); }
 .save-indicator.saved { color: var(--good); }
+.save-indicator.error {
+  color: #fff;
+  background: var(--danger);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
 kbd {
   font-family: var(--mono);
   font-size: 10.5px;

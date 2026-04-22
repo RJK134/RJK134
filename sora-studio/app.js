@@ -63,8 +63,11 @@ function freshState() {
 /* -------------------------- state -------------------------- */
 
 let state = loadState();
-if (!state.activeShotId && state.shots.length) {
-  state.activeShotId = state.shots[0].id;
+if (state.shots.length) {
+  const hasActive = state.shots.some((s) => s.id === state.activeShotId);
+  if (!hasActive) state.activeShotId = state.shots[0].id;
+} else {
+  state.activeShotId = null;
 }
 
 function loadState() {
@@ -99,10 +102,10 @@ function saveState() {
 function setSaveStatus(kind) {
   const el = document.getElementById("save-indicator");
   if (!el) return;
-  el.classList.remove("dirty", "saved");
+  el.classList.remove("dirty", "saved", "error");
   if (kind === "dirty") { el.textContent = "Saving…"; el.classList.add("dirty"); }
   else if (kind === "saved") { el.textContent = "Saved locally"; el.classList.add("saved"); }
-  else if (kind === "error") { el.textContent = "Save failed"; }
+  else if (kind === "error") { el.textContent = "Save failed — storage full?"; el.classList.add("error"); }
 }
 
 function activeShot() {
