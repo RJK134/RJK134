@@ -50,12 +50,15 @@
     </div>
 
     <div class="actions">
+      <span id="api-key-badge" class="api-key-badge missing" title="Click Settings to add your Gemini API key">No API key</span>
+      <button data-action="open-settings" class="ghost" title="API key &amp; model settings">⚙ Settings</button>
       <button data-action="new-project" class="ghost" title="Start fresh">New</button>
-      <button data-action="import" class="ghost">Import JSON</button>
+      <button data-action="import" class="ghost">Import</button>
       <input type="file" id="file-input" accept="application/json" hidden />
       <button data-action="export-json" class="ghost">Export JSON</button>
       <button data-action="export-brief" class="ghost">Export brief</button>
-      <button data-action="export-prompts" class="primary">Copy all prompts</button>
+      <button data-action="export-prompts" class="ghost">Copy prompts</button>
+      <button data-action="render-all" class="primary">Render all</button>
     </div>
   </header>
 
@@ -256,9 +259,15 @@
 
         <fieldset class="references-pane">
           <legend>References & continuity <span class="hint-inline">(Veo 3.1 accepts up to 3 reference images)</span></legend>
+          <div class="ref-controls">
+            <button type="button" class="ghost small" data-action="trigger-ref-upload">Upload reference images</button>
+            <input id="ref-upload" type="file" accept="image/*" multiple hidden />
+            <span class="hint-inline">First image is used as the opening frame; up to 2 more anchor characters / style.</span>
+          </div>
+          <div id="ref-thumbs" class="ref-thumbs"></div>
           <label class="block">
-            <span>Reference images — describe each (1–3)</span>
-            <textarea data-field="referenceImages" rows="2" placeholder="One per line. e.g. character_anya.jpg — protagonist in red coat / set_diner.png — interior at night"></textarea>
+            <span>Reference notes (one per line)</span>
+            <textarea data-field="referenceImages" rows="2" placeholder="character_anya.jpg — protagonist in red coat&#10;set_diner.png — interior at night"></textarea>
           </label>
           <div class="row">
             <label class="grow">
@@ -323,6 +332,23 @@
             <span data-bind-text="shot.tokenEstimate">~0 tokens</span>
           </div>
         </div>
+
+        <div id="generation-pane" class="generation-pane" hidden>
+          <div class="prompt-head">
+            <h3>Veo render</h3>
+            <div class="prompt-actions">
+              <span id="generation-status" class="generation-status" data-status="idle">Idle</span>
+              <button data-action="cancel-generation" class="ghost small" hidden>Cancel</button>
+              <button data-action="download-video" class="ghost small" disabled>Download MP4</button>
+              <button data-action="generate-shot" class="primary small">Generate</button>
+            </div>
+          </div>
+          <video id="video-player" class="video-player" controls hidden></video>
+          <details class="generation-log-wrap">
+            <summary>Render log</summary>
+            <pre id="generation-log" class="generation-log"></pre>
+          </details>
+        </div>
       </div>
     </section>
 
@@ -360,9 +386,61 @@
         <div class="shot-title"></div>
         <div class="shot-sub"></div>
       </div>
-      <div class="shot-duration"></div>
+      <div class="shot-meta">
+        <span class="shot-status" data-status="idle"></span>
+        <span class="shot-duration"></span>
+      </div>
     </li>
   </template>
+
+  <div id="settings-modal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Veo 3.1 settings</h2>
+        <button class="ghost small" data-action="close-settings" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <label class="block">
+          <span>Gemini API key</span>
+          <input id="api-key-input" type="password" autocomplete="off" spellcheck="false"
+            placeholder="Paste your AI Studio API key (AIza…)" />
+          <small class="modal-hint">
+            Generate at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.
+            Stored in your browser's localStorage on this device only — never sent anywhere except Google's API.
+          </small>
+        </label>
+        <div class="row">
+          <label class="grow">
+            <span>Model</span>
+            <select id="model-select">
+              <option value="veo-3.1-generate-preview">veo-3.1-generate-preview</option>
+              <option value="veo-3.1-fast-generate-preview">veo-3.1-fast-generate-preview</option>
+              <option value="veo-3.0-generate-preview">veo-3.0-generate-preview</option>
+            </select>
+          </label>
+          <label class="grow">
+            <span>Person generation</span>
+            <select id="person-gen-select">
+              <option value="allow_all">Allow all</option>
+              <option value="allow_adult">Allow adults only</option>
+              <option value="dont_allow">Don't allow</option>
+            </select>
+          </label>
+        </div>
+        <p class="modal-hint">
+          Each render counts against your Google AI Pro quota. 4K renders use more tokens.
+          Reference images are sent to Google as part of the request and not stored anywhere else.
+        </p>
+      </div>
+      <div class="modal-foot">
+        <button class="ghost" data-action="settings-clear">Clear</button>
+        <span class="spacer"></span>
+        <button class="ghost" data-action="settings-test">Test key</button>
+        <button class="ghost" data-action="close-settings">Cancel</button>
+        <button class="primary" data-action="save-settings">Save</button>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

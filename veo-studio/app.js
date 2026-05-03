@@ -44,6 +44,7 @@ function newShot(overrides = {}) {
     ambient: "",
     music: "",
     referenceImages: "",
+    referenceImageData: [],
     firstFrame: "",
     lastFrame: "",
     transition: "",
@@ -268,6 +269,17 @@ const els = {
   timeline: document.getElementById("timeline"),
   checks: document.getElementById("checks"),
   fileInput: document.getElementById("file-input"),
+  // generation
+  settingsModal: null,
+  apiKeyInput: null,
+  modelSelect: null,
+  personGenSelect: null,
+  generationPane: null,
+  videoPlayer: null,
+  generationStatus: null,
+  refUploadInput: null,
+  refThumbs: null,
+  renderAllBtn: null,
 };
 
 function bindProjectInputs() {
@@ -357,6 +369,7 @@ function regenerateAllUnlockedPrompts() {
 
 function renderShotList() {
   const tpl = document.getElementById("shot-item-template");
+  if (!tpl || !els.shotsList) return;
   els.shotsList.innerHTML = "";
   state.shots.forEach((shot, i) => {
     const node = tpl.content.firstElementChild.cloneNode(true);
@@ -366,6 +379,13 @@ function renderShotList() {
     const sub = [shot.shotType, shot.subject].filter(Boolean).join(" · ");
     node.querySelector(".shot-sub").textContent = sub || "Describe the shot";
     node.querySelector(".shot-duration").textContent = shot.duration ? `${shot.duration}s` : "—";
+    const statusEl = node.querySelector(".shot-status");
+    if (statusEl) {
+      const g = generations.get(shot.id);
+      const status = g?.status || "idle";
+      statusEl.dataset.status = status;
+      statusEl.textContent = status === "idle" ? "" : (STATUS_LABELS[status] || status);
+    }
     if (shot.id === state.activeShotId) node.classList.add("active");
 
     node.addEventListener("click", () => selectShot(shot.id));
@@ -814,17 +834,584 @@ function wireKeyboard() {
   });
 }
 
+/* ====================================================================== *
+ *                       Veo 3.1 generation client
+ * ====================================================================== */
+
+const SETTINGS_KEY = "veo-studio.settings.v1";
+const VEO_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
+const DEFAULT_MODEL = "veo-3.1-generate-preview";
+
+const settings = loadSettings();
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) return { ...defaultSettings(), ...JSON.parse(raw) };
+  } catch (e) { /* fall through */ }
+  return defaultSettings();
+}
+function defaultSettings() {
+  return {
+    apiKey: "",
+    model: DEFAULT_MODEL,
+    personGeneration: "allow_all",
+    pollIntervalMs: 8000,
+    maxPollMs: 10 * 60 * 1000,
+  };
+}
+function saveSettings() {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {}
+}
+
+// Per-shot generation state — kept in memory only. Videos as object URLs.
+// Map<shotId, { status, operationName, videoUrl, videoBlob, error, startedAt, finishedAt, log[] }>
+const generations = new Map();
+
+const STATUS_LABELS = {
+  idle: "Idle",
+  queued: "Queued",
+  generating: "Generating",
+  ready: "Ready",
+  error: "Failed",
+};
+
+function getGen(shotId) {
+  if (!generations.has(shotId)) {
+    generations.set(shotId, { status: "idle", operationName: null, videoUrl: null, videoBlob: null, error: null, startedAt: 0, finishedAt: 0, log: [] });
+  }
+  return generations.get(shotId);
+}
+function setGen(shotId, patch) {
+  const g = { ...getGen(shotId), ...patch };
+  generations.set(shotId, g);
+  renderShotList();
+  if (state.activeShotId === shotId) renderGenerationPane();
+  return g;
+}
+function logGen(shotId, msg) {
+  const g = getGen(shotId);
+  const stamp = new Date().toLocaleTimeString();
+  g.log.push(`[${stamp}] ${msg}`);
+  if (g.log.length > 50) g.log = g.log.slice(-50);
+  if (state.activeShotId === shotId) renderGenerationPane();
+}
+
+/* ----- Veo HTTP API ----- */
+
+async function veoFetch(path, init = {}) {
+  if (!settings.apiKey) throw new Error("Add your Gemini API key in Settings first.");
+  const url = path.startsWith("http") ? path : `${VEO_API_BASE}/${path.replace(/^\//, "")}`;
+  const headers = {
+    "x-goog-api-key": settings.apiKey,
+    "Content-Type": "application/json",
+    ...(init.headers || {}),
+  };
+  const res = await fetch(url, { ...init, headers });
+  if (!res.ok) {
+    let errText = `${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json();
+      errText = body?.error?.message || JSON.stringify(body);
+    } catch {}
+    throw new Error(errText);
+  }
+  return res;
+}
+
+function veoParameters(shot, project) {
+  // Veo returns 4k as a literal; 720p / 1080p are accepted lowercase.
+  const resolutionMap = { "720p": "720p", "1080p": "1080p", "4K": "4k" };
+  const params = {
+    aspectRatio: project.aspectRatio,
+    durationSeconds: Number(shot.duration) || 8,
+    resolution: resolutionMap[project.resolution] || "1080p",
+    numberOfVideos: 1,
+    personGeneration: settings.personGeneration,
+  };
+  if (shot.avoid?.trim()) params.negativePrompt = shot.avoid.trim();
+  return params;
+}
+
+async function startGeneration(shot, project) {
+  const instance = { prompt: promptFor(shot) };
+  // First reference image becomes the conditioning image (first-frame for image-to-video).
+  // Additional refs are documented as `referenceImages` with role hints; we add them when present.
+  const refs = (shot.referenceImageData || []).filter((r) => r?.dataB64);
+  if (refs.length) {
+    instance.image = { bytesBase64Encoded: refs[0].dataB64, mimeType: refs[0].mimeType };
+    if (refs.length > 1) {
+      instance.referenceImages = refs.slice(1, 3).map((r) => ({
+        image: { bytesBase64Encoded: r.dataB64, mimeType: r.mimeType },
+      }));
+    }
+  }
+  const body = {
+    instances: [instance],
+    parameters: veoParameters(shot, project),
+  };
+  const res = await veoFetch(`models/${settings.model}:predictLongRunning`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  const json = await res.json();
+  const opName = json.name || json.operation || json?.operation?.name;
+  if (!opName) throw new Error("Veo did not return an operation name. Response: " + JSON.stringify(json).slice(0, 400));
+  return opName;
+}
+
+async function pollOperation(opName) {
+  const path = opName.startsWith("operations/") || opName.includes("/operations/")
+    ? opName
+    : `operations/${opName}`;
+  const res = await veoFetch(path);
+  return res.json();
+}
+
+function extractVideoSamples(operation) {
+  const r = operation?.response;
+  if (!r) return [];
+  return (
+    r.generatedVideos ||
+    r.generateVideoResponse?.generatedSamples ||
+    r.predictions?.[0]?.generatedSamples ||
+    r.predictions?.[0]?.generatedVideos ||
+    []
+  );
+}
+
+async function fetchVideoBlob(sample) {
+  // Two shapes: { video: { uri } } or { video: { bytesBase64Encoded, mimeType } } (or top-level)
+  const inline = sample?.video?.bytesBase64Encoded || sample?.bytesBase64Encoded;
+  const mimeType = sample?.video?.mimeType || sample?.mimeType || "video/mp4";
+  if (inline) {
+    const bytes = Uint8Array.from(atob(inline), (c) => c.charCodeAt(0));
+    return new Blob([bytes], { type: mimeType });
+  }
+  const uri = sample?.video?.uri || sample?.uri;
+  if (!uri) throw new Error("Operation finished but contained no video URI or bytes.");
+  const res = await veoFetch(uri);
+  return res.blob();
+}
+
+/* ----- Generation flow per shot ----- */
+
+async function generateShot(shotId, { fromBatch = false } = {}) {
+  const shot = state.shots.find((s) => s.id === shotId);
+  if (!shot) return;
+  const g = getGen(shotId);
+  if (g.status === "generating") return;
+
+  // Free any previous video object URL.
+  if (g.videoUrl) { URL.revokeObjectURL(g.videoUrl); }
+
+  setGen(shotId, {
+    status: "generating",
+    operationName: null,
+    videoUrl: null,
+    videoBlob: null,
+    error: null,
+    startedAt: Date.now(),
+    finishedAt: 0,
+    log: [],
+  });
+  logGen(shotId, `Submitting prompt to ${settings.model} (${shot.duration}s, ${state.project.aspectRatio}, ${state.project.resolution})…`);
+
+  try {
+    const opName = await startGeneration(shot, state.project);
+    setGen(shotId, { operationName: opName });
+    logGen(shotId, `Operation queued: ${opName}`);
+
+    const start = Date.now();
+    let delay = settings.pollIntervalMs;
+    while (true) {
+      if (getGen(shotId).status !== "generating") {
+        logGen(shotId, "Cancelled.");
+        return;
+      }
+      await sleep(delay);
+      const op = await pollOperation(opName);
+      if (op.error) throw new Error(op.error.message || "Operation reported an error.");
+      if (op.done) {
+        const samples = extractVideoSamples(op);
+        if (!samples.length) throw new Error("Operation completed but returned no videos.");
+        logGen(shotId, `Render finished in ${Math.round((Date.now() - start) / 1000)}s. Downloading…`);
+        const blob = await fetchVideoBlob(samples[0]);
+        const url = URL.createObjectURL(blob);
+        setGen(shotId, {
+          status: "ready",
+          videoBlob: blob,
+          videoUrl: url,
+          finishedAt: Date.now(),
+        });
+        logGen(shotId, `Ready (${(blob.size / 1024 / 1024).toFixed(1)} MB).`);
+        return;
+      }
+      const elapsed = Date.now() - start;
+      logGen(shotId, `Polling… (${Math.round(elapsed / 1000)}s elapsed)`);
+      if (elapsed > settings.maxPollMs) throw new Error("Timed out waiting for Veo.");
+      // Mild backoff up to 20s.
+      delay = Math.min(delay + 1000, 20000);
+    }
+  } catch (e) {
+    setGen(shotId, { status: "error", error: e.message || String(e), finishedAt: Date.now() });
+    logGen(shotId, `Error: ${e.message || e}`);
+    if (!fromBatch) throw e;
+  }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ----- Batch queue ----- */
+
+let batchAbort = false;
+let batchRunning = false;
+
+async function renderAll() {
+  if (batchRunning) {
+    batchAbort = true;
+    return;
+  }
+  if (!settings.apiKey) {
+    openSettings();
+    return;
+  }
+  // Queue every shot that isn't already ready unless the user opts to redo.
+  const targets = state.shots.filter((s) => {
+    const g = getGen(s.id);
+    return g.status !== "ready" || confirmRedo(s);
+  });
+  if (!targets.length) return;
+  batchRunning = true;
+  batchAbort = false;
+  updateRenderAllButton();
+  for (const s of targets) setGen(s.id, { status: "queued" });
+  for (const s of targets) {
+    if (batchAbort) break;
+    await generateShot(s.id, { fromBatch: true });
+  }
+  batchRunning = false;
+  batchAbort = false;
+  updateRenderAllButton();
+}
+
+let askedRedoOnce = false;
+let redoChoice = false;
+function confirmRedo(_shot) {
+  if (askedRedoOnce) return redoChoice;
+  askedRedoOnce = true;
+  redoChoice = confirm("Some shots already have rendered videos. Re-render them as well?\n\nOK = re-render everything · Cancel = skip already-rendered shots");
+  return redoChoice;
+}
+
+function cancelGeneration(shotId) {
+  const g = getGen(shotId);
+  if (g.status === "generating" || g.status === "queued") {
+    setGen(shotId, { status: "error", error: "Cancelled by user.", finishedAt: Date.now() });
+  }
+}
+
+function updateRenderAllButton() {
+  const btn = els.renderAllBtn;
+  if (!btn) return;
+  if (batchRunning) {
+    btn.textContent = "Cancel batch";
+    btn.classList.remove("primary");
+    btn.classList.add("danger");
+  } else {
+    btn.textContent = "Render all";
+    btn.classList.add("primary");
+    btn.classList.remove("danger");
+  }
+}
+
+/* ----- Settings modal ----- */
+
+function openSettings() {
+  if (!els.settingsModal) return;
+  els.apiKeyInput.value = settings.apiKey;
+  els.modelSelect.value = settings.model;
+  els.personGenSelect.value = settings.personGeneration;
+  els.settingsModal.hidden = false;
+  setTimeout(() => els.apiKeyInput.focus(), 50);
+}
+function closeSettings() {
+  if (!els.settingsModal) return;
+  els.settingsModal.hidden = true;
+}
+function applySettingsFromForm() {
+  settings.apiKey = els.apiKeyInput.value.trim();
+  settings.model = els.modelSelect.value || DEFAULT_MODEL;
+  settings.personGeneration = els.personGenSelect.value || "allow_all";
+  saveSettings();
+  renderApiKeyBadge();
+  closeSettings();
+}
+async function testApiKey() {
+  const btn = document.querySelector('[data-action="settings-test"]');
+  if (!btn) return;
+  const prev = btn.textContent;
+  btn.textContent = "Testing…";
+  btn.disabled = true;
+  try {
+    const tempKey = els.apiKeyInput.value.trim();
+    if (!tempKey) throw new Error("Enter a key first.");
+    const res = await fetch(`${VEO_API_BASE}/models/${els.modelSelect.value}`, {
+      headers: { "x-goog-api-key": tempKey },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.error?.message || `${res.status} ${res.statusText}`);
+    }
+    btn.textContent = "Key works ✓";
+    setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1500);
+  } catch (e) {
+    btn.textContent = "Failed";
+    alert("Key test failed: " + (e.message || e));
+    setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1500);
+  }
+}
+function clearSettings() {
+  if (!confirm("Clear API key and settings?")) return;
+  settings.apiKey = "";
+  settings.model = DEFAULT_MODEL;
+  settings.personGeneration = "allow_all";
+  saveSettings();
+  renderApiKeyBadge();
+  openSettings();
+}
+
+function renderApiKeyBadge() {
+  const badge = document.getElementById("api-key-badge");
+  if (!badge) return;
+  if (settings.apiKey) {
+    badge.textContent = `Key set · ${settings.model}`;
+    badge.classList.add("ok");
+    badge.classList.remove("missing");
+  } else {
+    badge.textContent = "No API key";
+    badge.classList.remove("ok");
+    badge.classList.add("missing");
+  }
+}
+
+/* ----- Reference image upload ----- */
+
+async function readFilesAsBase64(fileList) {
+  const out = [];
+  for (const file of Array.from(fileList).slice(0, 3)) {
+    if (!file.type.startsWith("image/")) continue;
+    if (file.size > 8 * 1024 * 1024) {
+      alert(`${file.name} is over 8 MB — please use a smaller image.`);
+      continue;
+    }
+    const dataB64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const s = reader.result;
+        const idx = typeof s === "string" ? s.indexOf(",") : -1;
+        resolve(idx > -1 ? s.slice(idx + 1) : "");
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    out.push({ name: file.name, mimeType: file.type, dataB64 });
+  }
+  return out;
+}
+
+async function handleReferenceUpload(files) {
+  const shot = activeShot();
+  if (!shot) return;
+  const added = await readFilesAsBase64(files);
+  if (!added.length) return;
+  const existing = shot.referenceImageData || [];
+  shot.referenceImageData = [...existing, ...added].slice(0, 3);
+  // Auto-fill text descriptions from filenames if user hasn't provided any.
+  if (!shot.referenceImages?.trim()) {
+    shot.referenceImages = shot.referenceImageData.map((r) => r.name).join("\n");
+  }
+  if (!shot.promptLocked) shot.prompt = buildPrompt(shot, state.project);
+  saveState();
+  renderEditor();
+  renderRefThumbs();
+}
+
+function removeReference(i) {
+  const shot = activeShot();
+  if (!shot || !shot.referenceImageData) return;
+  shot.referenceImageData.splice(i, 1);
+  saveState();
+  renderRefThumbs();
+}
+
+function renderRefThumbs() {
+  const wrap = els.refThumbs;
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const shot = activeShot();
+  const refs = shot?.referenceImageData || [];
+  refs.forEach((r, i) => {
+    const div = document.createElement("div");
+    div.className = "ref-thumb";
+    div.innerHTML = `
+      <img alt="${r.name}" src="data:${r.mimeType};base64,${r.dataB64}" />
+      <button class="x" title="Remove">×</button>
+      <span class="caption">${r.name}</span>
+    `;
+    div.querySelector(".x").addEventListener("click", () => removeReference(i));
+    wrap.appendChild(div);
+  });
+  // Disable the file input once we hit 3 refs.
+  if (els.refUploadInput) els.refUploadInput.disabled = refs.length >= 3;
+}
+
+/* ----- Generation pane rendering ----- */
+
+function renderGenerationPane() {
+  const pane = els.generationPane;
+  if (!pane) return;
+  const shot = activeShot();
+  if (!shot) { pane.hidden = true; return; }
+  pane.hidden = false;
+
+  const g = getGen(shot.id);
+  const statusEl = els.generationStatus;
+  if (statusEl) {
+    statusEl.dataset.status = g.status;
+    let text = STATUS_LABELS[g.status] || g.status;
+    if (g.status === "generating" && g.startedAt) {
+      const sec = Math.round((Date.now() - g.startedAt) / 1000);
+      text += ` · ${sec}s`;
+    }
+    if (g.status === "error" && g.error) text += ` — ${g.error}`;
+    statusEl.textContent = text;
+  }
+
+  const player = els.videoPlayer;
+  if (player) {
+    if (g.videoUrl) {
+      if (player.src !== g.videoUrl) player.src = g.videoUrl;
+      player.hidden = false;
+    } else {
+      player.removeAttribute("src");
+      player.hidden = true;
+    }
+  }
+
+  const log = document.getElementById("generation-log");
+  if (log) log.textContent = g.log.join("\n");
+
+  const dlBtn = document.querySelector('[data-action="download-video"]');
+  if (dlBtn) dlBtn.disabled = !g.videoUrl;
+  const cancelBtn = document.querySelector('[data-action="cancel-generation"]');
+  if (cancelBtn) cancelBtn.hidden = g.status !== "generating" && g.status !== "queued";
+  const genBtn = document.querySelector('[data-action="generate-shot"]');
+  if (genBtn) {
+    genBtn.disabled = g.status === "generating";
+    genBtn.textContent = g.status === "ready" ? "Re-render" : "Generate";
+  }
+}
+
+function downloadVideo() {
+  const shot = activeShot();
+  if (!shot) return;
+  const g = getGen(shot.id);
+  if (!g.videoUrl) return;
+  const a = document.createElement("a");
+  a.href = g.videoUrl;
+  a.download = `${slugify(state.project.title)}-${String(state.shots.indexOf(shot) + 1).padStart(2, "0")}-${slugify(shot.title || "shot")}.mp4`;
+  a.click();
+}
+
+/* Periodically refresh the elapsed-time display while generating. */
+setInterval(() => {
+  const shot = activeShot();
+  if (!shot) return;
+  const g = getGen(shot.id);
+  if (g.status === "generating") renderGenerationPane();
+}, 1000);
+
 /* -------------------------- boot -------------------------- */
 
 function boot() {
+  cacheGenerationEls();
   bindProjectInputs();
   bindShotEditorInputs();
   wireActions();
   wireKeyboard();
+  wireSettingsAndGeneration();
   renderShotList();
   renderEditor();
   renderDerived();
+  renderApiKeyBadge();
+  renderRefThumbs();
+  renderGenerationPane();
   setSaveStatus("saved");
+}
+
+function cacheGenerationEls() {
+  els.settingsModal = document.getElementById("settings-modal");
+  els.apiKeyInput = document.getElementById("api-key-input");
+  els.modelSelect = document.getElementById("model-select");
+  els.personGenSelect = document.getElementById("person-gen-select");
+  els.generationPane = document.getElementById("generation-pane");
+  els.videoPlayer = document.getElementById("video-player");
+  els.generationStatus = document.getElementById("generation-status");
+  els.refUploadInput = document.getElementById("ref-upload");
+  els.refThumbs = document.getElementById("ref-thumbs");
+  els.renderAllBtn = document.querySelector('[data-action="render-all"]');
+}
+
+function wireSettingsAndGeneration() {
+  // Generation-related actions piggyback on the same data-action dispatcher
+  // already set up by wireActions(); we just register the handlers here so
+  // they live next to their state.
+  document.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-action]");
+    if (!t) return;
+    const a = t.getAttribute("data-action");
+    switch (a) {
+      case "open-settings": openSettings(); break;
+      case "close-settings": closeSettings(); break;
+      case "save-settings": applySettingsFromForm(); break;
+      case "settings-test": testApiKey(); break;
+      case "settings-clear": clearSettings(); break;
+      case "generate-shot": {
+        const shot = activeShot();
+        if (!shot) break;
+        if (!settings.apiKey) { openSettings(); break; }
+        generateShot(shot.id).catch(() => {});
+        break;
+      }
+      case "cancel-generation": {
+        const shot = activeShot();
+        if (shot) cancelGeneration(shot.id);
+        break;
+      }
+      case "render-all": renderAll(); break;
+      case "download-video": downloadVideo(); break;
+      case "trigger-ref-upload": els.refUploadInput?.click(); break;
+    }
+  });
+
+  // Reference image file picker
+  if (els.refUploadInput) {
+    els.refUploadInput.addEventListener("change", (e) => {
+      if (e.target.files?.length) handleReferenceUpload(e.target.files);
+      e.target.value = "";
+    });
+  }
+
+  // Click backdrop to close settings
+  if (els.settingsModal) {
+    els.settingsModal.addEventListener("click", (e) => {
+      if (e.target === els.settingsModal) closeSettings();
+    });
+  }
+  // Esc to close settings
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && els.settingsModal && !els.settingsModal.hidden) closeSettings();
+  });
 }
 
 document.addEventListener("DOMContentLoaded", boot);
