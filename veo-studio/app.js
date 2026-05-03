@@ -461,7 +461,9 @@ function renderChecks() {
   const offDuration = state.shots.filter((s) => !VEO_VALID_DURATIONS.includes(Number(s.duration)));
   const emptyShots = state.shots.filter((s) => !s.subject && !s.action && !s.description);
   const missingCamera = state.shots.filter((s) => !s.camera);
-  const tooManyRefs = state.shots.filter((s) => formatReferences(s.referenceImages).length > 3);
+  const tooManyRefs = state.shots.filter((s) =>
+    (s.referenceImages || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).length > 3
+  );
   const longPrompts = state.shots.filter((s) =>
     estimateTokens(promptFor(s)) > PROMPT_TOKEN_BUDGET
   );
