@@ -1,11 +1,25 @@
 "use strict";
 
 /* ------------------------------------------------------------------ *
- *  Sora Studio — video production planning
+ *  Veo Studio — production planning for Google Veo 3.1
  *  Single-file vanilla JS. Persists to localStorage.
+ *
+ *  Veo 3.1 facts the planner respects:
+ *  - Native aspect ratios: 16:9, 9:16
+ *  - Resolutions: 720p, 1080p, 4K (3840×2160)
+ *  - Clip duration: 4, 6, or 8 seconds
+ *  - Native synced audio at 48 kHz stereo (dialogue, SFX, ambient, music)
+ *  - Up to 3 reference images for character / style consistency
+ *  - First-frame / last-frame guidance for chained clips
+ *  - Prompt token budget around ~1024 tokens
  * ------------------------------------------------------------------ */
 
-const STORAGE_KEY = "sora-studio.v1";
+const STORAGE_KEY = "veo-studio.v1";
+const LEGACY_SORA_KEY = "sora-studio.v1";
+const VEO_VALID_DURATIONS = [4, 6, 8];
+const VEO_VALID_ASPECTS = new Set(["16:9", "9:16"]);
+const VEO_VALID_RESOLUTIONS = new Set(["720p", "1080p", "4K"]);
+const PROMPT_TOKEN_BUDGET = 1024;
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
@@ -25,7 +39,13 @@ function newShot(overrides = {}) {
     camera: "",
     lens: "",
     filmStock: "",
-    audio: "",
+    dialogue: "",
+    sfx: "",
+    ambient: "",
+    music: "",
+    referenceImages: "",
+    firstFrame: "",
+    lastFrame: "",
     transition: "",
     description: "",
     avoid: "",
@@ -51,9 +71,6 @@ function freshState() {
         title: "Opening shot",
         duration: 8,
         shotType: "Wide",
-        subject: "",
-        action: "",
-        setting: "",
       }),
     ],
     activeShotId: null,
@@ -73,16 +90,56 @@ if (state.shots.length) {
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return freshState();
-    const parsed = JSON.parse(raw);
-    if (!parsed.project || !Array.isArray(parsed.shots)) return freshState();
-    parsed.project = { ...freshState().project, ...parsed.project };
-    parsed.shots = parsed.shots.map((s) => ({ ...newShot(), ...s }));
-    return parsed;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (!parsed.project || !Array.isArray(parsed.shots)) return freshState();
+      parsed.project = normalizeProject(parsed.project);
+      parsed.shots = parsed.shots.map((s) => migrateShot(s));
+      return parsed;
+    }
+    // First run on Veo Studio — try to migrate from old Sora Studio data.
+    const legacy = localStorage.getItem(LEGACY_SORA_KEY);
+    if (legacy) {
+      const parsed = JSON.parse(legacy);
+      if (parsed.project && Array.isArray(parsed.shots)) {
+        parsed.project = normalizeProject(parsed.project);
+        parsed.shots = parsed.shots.map((s) => migrateShot(s));
+        return parsed;
+      }
+    }
+    return freshState();
   } catch (e) {
     console.warn("Failed to load saved state, starting fresh.", e);
     return freshState();
   }
+}
+
+function normalizeProject(raw) {
+  const merged = { ...freshState().project, ...raw };
+  if (!VEO_VALID_ASPECTS.has(merged.aspectRatio)) merged.aspectRatio = "16:9";
+  if (!VEO_VALID_RESOLUTIONS.has(merged.resolution)) merged.resolution = "1080p";
+  return merged;
+}
+
+function migrateShot(raw) {
+  const merged = { ...newShot(), ...raw };
+  // Sora Studio kept all audio direction in a single `audio` field. Migrate
+  // it into Veo's ambient slot if no Veo-specific audio fields are set.
+  if (raw && typeof raw.audio === "string" && raw.audio.trim() &&
+      !merged.dialogue && !merged.sfx && !merged.ambient && !merged.music) {
+    merged.ambient = raw.audio.trim();
+  }
+  delete merged.audio;
+  // Snap duration to a Veo-supported value if the legacy data was off.
+  const dur = Number(merged.duration) || 8;
+  merged.duration = nearestValidDuration(dur);
+  return merged;
+}
+
+function nearestValidDuration(n) {
+  return VEO_VALID_DURATIONS.reduce((best, d) =>
+    Math.abs(d - n) < Math.abs(best - n) ? d : best,
+  VEO_VALID_DURATIONS[VEO_VALID_DURATIONS.length - 1]);
 }
 
 let saveTimer = null;
@@ -122,13 +179,38 @@ function sentence(s) {
   return /[.!?]$/.test(trimmed) ? trimmed : trimmed + ".";
 }
 
+// Veo 3.1 reads dialogue inside quotation marks. If the user already
+// quoted lines, leave them; otherwise wrap each non-empty line.
+function formatDialogue(raw) {
+  if (!raw) return "";
+  return raw.split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => /["“”].*["“”]/.test(line) ? line : `"${line.replace(/^["'“”]|["'“”]$/g, "")}"`)
+    .join(" ");
+}
+
+function formatReferences(raw) {
+  if (!raw) return [];
+  return raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 3);
+}
+
+// Token estimate — Gemini's actual tokenizer is BPE; ~4 chars/token is a
+// good rule of thumb for English. Used only to warn near the budget.
+function estimateTokens(text) {
+  return Math.ceil((text || "").length / 4);
+}
+
 function buildPrompt(shot, project) {
   const parts = [];
   const push = (s) => { const out = sentence(s); if (out) parts.push(out); };
 
+  // Camera & framing — Veo's prompt guide puts this first.
   const framing = [shot.shotType, shot.lens && `${shot.lens} lens`].filter(Boolean).join(", ");
   push(framing);
+  if (shot.camera) push(`Camera: ${shot.camera}`);
 
+  // Subject + action + environment.
   const subjectClause = [shot.subject, shot.action].filter(Boolean).join(" ");
   const where = [shot.setting, shot.timeOfDay, shot.weather].filter(Boolean).join(", ");
   if (subjectClause && where) push(`${subjectClause} — ${where}`);
@@ -138,15 +220,32 @@ function buildPrompt(shot, project) {
   push(shot.description);
   if (shot.lighting) push(`Lighting: ${shot.lighting}`);
   if (shot.mood) push(`Mood: ${shot.mood}`);
-  if (shot.camera) push(`Camera: ${shot.camera}`);
 
+  // Look (style + film stock).
   const grain = [shot.filmStock, project.style].filter(Boolean).join(" · ");
   if (grain) push(`Look: ${grain}`);
   if (project.styleNotes) push(`Continuity: ${project.styleNotes.trim()}`);
 
-  if (shot.audio) push(`Audio: ${shot.audio}`);
+  // Native audio — Veo 3.1's headline feature. Order: dialogue, SFX, ambient, music.
+  const dialogue = formatDialogue(shot.dialogue);
+  if (dialogue) push(`Dialogue: ${dialogue}`);
+  if (shot.sfx) push(`SFX: ${shot.sfx}`);
+  if (shot.ambient) push(`Ambient: ${shot.ambient}`);
+  if (shot.music) push(`Music: ${shot.music}`);
+
+  // Frame guidance for chained clips / image-to-video.
+  if (shot.firstFrame) push(`Opening frame: ${shot.firstFrame}`);
+  if (shot.lastFrame) push(`Closing frame: ${shot.lastFrame}`);
+
+  // Reference images — describe what each anchors.
+  const refs = formatReferences(shot.referenceImages);
+  if (refs.length) {
+    push(`Reference images (${refs.length}): ${refs.join("; ")}`);
+  }
+
   if (shot.transition) push(`Ends on a ${shot.transition.toLowerCase()} into the next shot`);
 
+  // Output spec.
   const meta = [
     project.aspectRatio && `${project.aspectRatio} frame`,
     project.resolution,
@@ -171,7 +270,6 @@ const els = {
   fileInput: document.getElementById("file-input"),
 };
 
-/* Bind inputs with data-bind="project.X" directly to state. */
 function bindProjectInputs() {
   document.querySelectorAll("[data-bind]").forEach((el) => {
     const path = el.getAttribute("data-bind").split(".");
@@ -212,18 +310,17 @@ function bindShotEditorInputs() {
       let val;
       if (el.type === "checkbox") val = el.checked;
       else if (el.type === "number") val = el.value === "" ? "" : Number(el.value);
+      else if (field === "duration") val = Number(el.value) || 8;
       else val = el.value;
       shot[field] = val;
 
       if (field === "prompt") {
-        // user edited prompt directly — auto-lock if they've added content
         if (val && !shot.promptLocked) {
           shot.promptLocked = true;
           const lock = document.querySelector('[data-field="promptLocked"]');
           if (lock) lock.checked = true;
         }
       } else if (field === "promptLocked" && !val) {
-        // unlocking — regenerate from fields
         shot.prompt = buildPrompt(shot, state.project);
         els.promptOutput.value = shot.prompt;
       } else if (field !== "notes" && field !== "promptLocked") {
@@ -306,8 +403,10 @@ function updatePromptMeta() {
   if (!el) return;
   const text = el.value || "";
   const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
+  const tokens = estimateTokens(text);
   setBind("shot.charCount", `${text.length} chars`);
   setBind("shot.wordCount", `${wordCount} words`);
+  setBind("shot.tokenEstimate", `~${tokens} tokens`);
 }
 
 function renderTimeline() {
@@ -359,18 +458,49 @@ function setBind(key, val) {
 function renderChecks() {
   const list = [];
   const total = totalRuntime();
-  const longShots = state.shots.filter((s) => Number(s.duration) > 20);
+  const offDuration = state.shots.filter((s) => !VEO_VALID_DURATIONS.includes(Number(s.duration)));
   const emptyShots = state.shots.filter((s) => !s.subject && !s.action && !s.description);
   const missingCamera = state.shots.filter((s) => !s.camera);
+  const tooManyRefs = state.shots.filter((s) => formatReferences(s.referenceImages).length > 3);
+  const longPrompts = state.shots.filter((s) =>
+    estimateTokens(promptFor(s)) > PROMPT_TOKEN_BUDGET
+  );
+  const noAudio = state.shots.filter((s) =>
+    !s.dialogue && !s.sfx && !s.ambient && !s.music
+  );
 
-  if (!state.shots.length) list.push({ kind: "warn", text: "No shots yet — add your first one." });
-  if (total > 0) list.push({ kind: "info", text: `Planned runtime: ${formatRuntime(total)} across ${state.shots.length} shots.` });
-  if (longShots.length) list.push({ kind: "warn", text: `${longShots.length} shot${longShots.length>1?"s":""} exceed 20s — Sora renders shorter clips reliably; consider splitting.` });
-  if (emptyShots.length) list.push({ kind: "warn", text: `${emptyShots.length} shot${emptyShots.length>1?"s":""} missing subject / action.` });
-  if (missingCamera.length) list.push({ kind: "info", text: `${missingCamera.length} shot${missingCamera.length>1?"s":""} without a camera move — Sora will default to static.` });
-  if (!state.project.styleNotes) list.push({ kind: "info", text: "Tip: fill the style reference to keep characters and palette consistent across shots." });
+  if (!state.shots.length) {
+    list.push({ kind: "warn", text: "No shots yet — add your first one." });
+  }
+  if (total > 0) {
+    list.push({ kind: "info", text: `Planned runtime: ${formatRuntime(total)} across ${state.shots.length} shots.` });
+  }
+  if (offDuration.length) {
+    list.push({ kind: "warn", text: `${offDuration.length} shot${offDuration.length>1?"s":""} not at 4 / 6 / 8 s — Veo 3.1 only renders those native lengths.` });
+  }
+  if (state.project.resolution === "4K") {
+    list.push({ kind: "info", text: "4K output uses more tokens and takes longer; check your Google AI Pro quota." });
+  }
+  if (emptyShots.length) {
+    list.push({ kind: "warn", text: `${emptyShots.length} shot${emptyShots.length>1?"s":""} missing subject / action.` });
+  }
+  if (missingCamera.length) {
+    list.push({ kind: "info", text: `${missingCamera.length} shot${missingCamera.length>1?"s":""} without a camera move — Veo will default to static or subtle handheld.` });
+  }
+  if (tooManyRefs.length) {
+    list.push({ kind: "warn", text: `${tooManyRefs.length} shot${tooManyRefs.length>1?"s":""} list more than 3 reference images — Veo 3.1 caps at 3.` });
+  }
+  if (longPrompts.length) {
+    list.push({ kind: "warn", text: `${longPrompts.length} prompt${longPrompts.length>1?"s":""} exceed ~${PROMPT_TOKEN_BUDGET} tokens; Veo may truncate.` });
+  }
+  if (state.shots.length && noAudio.length === state.shots.length) {
+    list.push({ kind: "info", text: "Tip: Veo 3.1 generates synced audio natively — fill dialogue, SFX, or ambient on at least one shot." });
+  }
+  if (!state.project.styleNotes) {
+    list.push({ kind: "info", text: "Tip: fill the style reference to keep characters and palette consistent across shots." });
+  }
   if (state.shots.length && !list.some((item) => item.kind === "warn")) {
-    list.unshift({ kind: "ok", text: "Looks ready to render." });
+    list.unshift({ kind: "ok", text: "Looks ready to render with Veo 3.1." });
   }
 
   els.checks.innerHTML = "";
@@ -488,7 +618,7 @@ function download(filename, text, type = "text/plain") {
 }
 
 function slugify(s) {
-  return (s || "sora-project").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return (s || "veo-project").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
 function promptFor(shot) {
@@ -505,6 +635,7 @@ function exportBrief() {
   lines.push(`# ${p.title || "Untitled Project"}`);
   if (p.logline) lines.push(`\n> ${p.logline}`);
   lines.push("");
+  lines.push(`- Model: **Google Veo 3.1**`);
   lines.push(`- Aspect: ${p.aspectRatio} · Resolution: ${p.resolution}${p.style ? ` · Style: ${p.style}` : ""}`);
   lines.push(`- Shots: ${state.shots.length} · Total runtime: ${formatRuntime(totalRuntime())}`);
   if (p.styleNotes) lines.push(`\n**Continuity / style reference**\n\n${p.styleNotes}`);
@@ -526,12 +657,26 @@ function exportBrief() {
     if (s.lighting) lines.push(`*Lighting*: ${s.lighting}`);
     if (s.camera) lines.push(`*Camera*: ${s.camera}`);
     if (s.mood) lines.push(`*Mood*: ${s.mood}`);
-    if (s.audio) lines.push(`*Audio*: ${s.audio}`);
+
+    const audioBits = [
+      s.dialogue && `*Dialogue*: ${s.dialogue.replace(/\s+/g, " ").trim()}`,
+      s.sfx && `*SFX*: ${s.sfx}`,
+      s.ambient && `*Ambient*: ${s.ambient}`,
+      s.music && `*Music*: ${s.music}`,
+    ].filter(Boolean);
+    if (audioBits.length) lines.push("\n" + audioBits.join("  \n"));
+
+    const refs = formatReferences(s.referenceImages);
+    if (refs.length) {
+      lines.push(`\n*Reference images*:\n` + refs.map((r) => `- ${r}`).join("\n"));
+    }
+    if (s.firstFrame) lines.push(`*Opening frame*: ${s.firstFrame}`);
+    if (s.lastFrame) lines.push(`*Closing frame*: ${s.lastFrame}`);
     if (s.transition) lines.push(`*Transition out*: ${s.transition}`);
     if (s.description) lines.push(`\n${s.description}`);
     if (s.avoid) lines.push(`\n_Avoid: ${s.avoid}_`);
     if (s.notes) lines.push(`\n> Production notes: ${s.notes}`);
-    lines.push(`\n**Sora prompt**\n\n\`\`\`\n${promptFor(s)}\n\`\`\``);
+    lines.push(`\n**Veo 3.1 prompt**\n\n\`\`\`\n${promptFor(s)}\n\`\`\``);
     lines.push("\n---\n");
   });
 
@@ -541,7 +686,7 @@ function exportBrief() {
 function promptsAsPlainText() {
   return state.shots.map((s, i) => {
     const n = String(i + 1).padStart(2, "0");
-    const header = `# Shot ${n} — ${s.title || "Untitled"} (${s.duration || 0}s)`;
+    const header = `# Shot ${n} — ${s.title || "Untitled"} (${s.duration || 0}s · ${state.project.aspectRatio} · ${state.project.resolution})`;
     return `${header}\n${promptFor(s)}`;
   }).join("\n\n");
 }
@@ -581,13 +726,13 @@ function importJSON(file) {
       const parsed = JSON.parse(reader.result);
       if (!parsed.project || !Array.isArray(parsed.shots)) throw new Error("Invalid file");
       state = parsed;
-      state.project = { ...freshState().project, ...parsed.project };
-      state.shots = state.shots.map((s) => ({ ...newShot(), ...s }));
+      state.project = normalizeProject(parsed.project);
+      state.shots = state.shots.map((s) => migrateShot(s));
       state.activeShotId = state.shots[0]?.id || null;
       saveState();
       rerenderAll();
     } catch (e) {
-      alert("Couldn't import that file — make sure it's a Sora Studio JSON export.");
+      alert("Couldn't import that file — make sure it's a Veo Studio (or Sora Studio) JSON export.");
     }
   };
   reader.readAsText(file);

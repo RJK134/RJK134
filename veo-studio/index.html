@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Sora Studio — Video Production Planner</title>
+  <title>Veo Studio — Veo 3.1 Production Planner</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -21,16 +21,13 @@
         <select data-bind="project.aspectRatio">
           <option value="16:9">16:9 Landscape</option>
           <option value="9:16">9:16 Vertical</option>
-          <option value="1:1">1:1 Square</option>
-          <option value="21:9">21:9 Anamorphic</option>
-          <option value="4:5">4:5 Portrait</option>
         </select>
       </label>
       <label>Resolution
         <select data-bind="project.resolution">
-          <option value="1080p">1080p</option>
           <option value="720p">720p</option>
-          <option value="480p">480p</option>
+          <option value="1080p">1080p</option>
+          <option value="4K">4K (3840×2160)</option>
         </select>
       </label>
       <label>House style
@@ -39,6 +36,7 @@
           <option>Cinematic anamorphic film</option>
           <option>Documentary vérité</option>
           <option>Studio Ghibli anime</option>
+          <option>Pixar 3D animation</option>
           <option>Claymation stop-motion</option>
           <option>Retro VHS home video</option>
           <option>Editorial fashion campaign</option>
@@ -46,6 +44,7 @@
           <option>Commercial product hero</option>
           <option>Found-footage handheld</option>
           <option>Music video hyperlapse</option>
+          <option>TikTok vertical native</option>
         </select>
       </label>
     </div>
@@ -86,8 +85,12 @@
             <input data-field="title" placeholder="e.g. Opening — neon rooftop reveal" />
           </label>
           <label>
-            <span>Duration (s)</span>
-            <input data-field="duration" type="number" min="1" max="60" step="1" />
+            <span>Duration</span>
+            <select data-field="duration">
+              <option value="4">4 seconds</option>
+              <option value="6">6 seconds</option>
+              <option value="8" selected>8 seconds</option>
+            </select>
           </label>
           <label>
             <span>Shot type</span>
@@ -104,6 +107,7 @@
               <option>POV</option>
               <option>Aerial / drone</option>
               <option>Top-down</option>
+              <option>Worm's eye</option>
               <option>Insert</option>
             </select>
           </label>
@@ -116,7 +120,7 @@
           </label>
           <label class="grow">
             <span>Action</span>
-            <input data-field="action" placeholder="What are they doing?" />
+            <input data-field="action" placeholder="What are they doing? (one main action per clip)" />
           </label>
         </div>
 
@@ -179,7 +183,7 @@
         <div class="row">
           <label class="grow">
             <span>Camera movement</span>
-            <input data-field="camera" placeholder="Dolly in, slow push, whip pan…" list="camera-presets" />
+            <input data-field="camera" placeholder="Pick ONE — Veo defaults to static if unspecified" list="camera-presets" />
             <datalist id="camera-presets">
               <option>Static locked-off tripod</option>
               <option>Slow dolly in toward subject</option>
@@ -192,6 +196,7 @@
               <option>POV walking forward</option>
               <option>Drone pullback reveal</option>
               <option>Vertigo dolly zoom</option>
+              <option>Eye-level slow push</option>
             </datalist>
           </label>
           <label>
@@ -227,11 +232,47 @@
           </label>
         </div>
 
-        <div class="row">
-          <label class="grow">
-            <span>Audio direction</span>
-            <input data-field="audio" placeholder="Diegetic ambience, score cue, SFX…" />
+        <fieldset class="audio-pane">
+          <legend>Native audio <span class="hint-inline">(Veo 3.1 generates 48 kHz stereo)</span></legend>
+          <label class="block">
+            <span>Dialogue (use plain text — quoted automatically)</span>
+            <textarea data-field="dialogue" rows="2" placeholder='e.g. She turns to him and says, I told you it would rain.'></textarea>
           </label>
+          <div class="row">
+            <label class="grow">
+              <span>SFX</span>
+              <input data-field="sfx" placeholder="thunder cracks, footsteps on gravel, metal door slam" />
+            </label>
+            <label class="grow">
+              <span>Ambient</span>
+              <input data-field="ambient" placeholder="distant traffic, room tone, cicadas at dusk" />
+            </label>
+          </div>
+          <label class="block">
+            <span>Music / score</span>
+            <input data-field="music" placeholder="slow piano motif in minor key, fades in over second 2" />
+          </label>
+        </fieldset>
+
+        <fieldset class="references-pane">
+          <legend>References & continuity <span class="hint-inline">(Veo 3.1 accepts up to 3 reference images)</span></legend>
+          <label class="block">
+            <span>Reference images — describe each (1–3)</span>
+            <textarea data-field="referenceImages" rows="2" placeholder="One per line. e.g. character_anya.jpg — protagonist in red coat / set_diner.png — interior at night"></textarea>
+          </label>
+          <div class="row">
+            <label class="grow">
+              <span>First-frame description</span>
+              <input data-field="firstFrame" placeholder="Optional — describes the opening frame for image-to-video or clip extension" />
+            </label>
+            <label class="grow">
+              <span>Last-frame intent</span>
+              <input data-field="lastFrame" placeholder="Optional — what the final frame should show, useful for chaining clips" />
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="row">
           <label class="grow">
             <span>Transition out</span>
             <select data-field="transition">
@@ -250,7 +291,7 @@
 
         <label class="block">
           <span>Description (free text — richer detail wins)</span>
-          <textarea data-field="description" rows="4" placeholder="Paint the scene. Include concrete nouns, textures, motion, color palette, anything you want Sora to anchor on."></textarea>
+          <textarea data-field="description" rows="4" placeholder="Paint the scene. Concrete nouns, textures, motion, color palette — anything you want Veo to anchor on."></textarea>
         </label>
 
         <label class="block">
@@ -259,13 +300,13 @@
         </label>
 
         <label class="block">
-          <span>Notes to self (not sent to Sora)</span>
+          <span>Notes to self (not sent to Veo)</span>
           <textarea data-field="notes" rows="2" placeholder="Production notes, references, alternative takes…"></textarea>
         </label>
 
         <div class="prompt-pane">
           <div class="prompt-head">
-            <h3>Generated prompt</h3>
+            <h3>Generated Veo prompt</h3>
             <div class="prompt-actions">
               <label class="switch">
                 <input type="checkbox" data-field="promptLocked" />
@@ -275,10 +316,11 @@
               <button data-action="copy-prompt" class="primary small">Copy</button>
             </div>
           </div>
-          <textarea id="prompt-output" data-field="prompt" rows="6" placeholder="Fill the fields above — the prompt assembles here. Toggle 'Lock manual edits' to hand-tune it."></textarea>
+          <textarea id="prompt-output" data-field="prompt" rows="7" placeholder="Fill the fields above — the prompt assembles here. Toggle 'Lock manual edits' to hand-tune it."></textarea>
           <div class="prompt-meta">
             <span data-bind-text="shot.charCount">0 chars</span>
             <span data-bind-text="shot.wordCount">0 words</span>
+            <span data-bind-text="shot.tokenEstimate">~0 tokens</span>
           </div>
         </div>
       </div>
@@ -292,6 +334,7 @@
         <dt>Longest shot</dt><dd data-bind-text="project.longestShot">—</dd>
         <dt>Aspect</dt><dd data-bind-text="project.aspectRatio">16:9</dd>
         <dt>Resolution</dt><dd data-bind-text="project.resolution">1080p</dd>
+        <dt>Model</dt><dd>Veo 3.1</dd>
       </dl>
 
       <h3>Timeline</h3>
