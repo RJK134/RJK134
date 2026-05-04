@@ -1260,12 +1260,26 @@ function renderRefThumbs() {
   refs.forEach((r, i) => {
     const div = document.createElement("div");
     div.className = "ref-thumb";
-    div.innerHTML = `
-      <img alt="${r.name}" src="data:${r.mimeType};base64,${r.dataB64}" />
-      <button class="x" title="Remove">×</button>
-      <span class="caption">${r.name}</span>
-    `;
-    div.querySelector(".x").addEventListener("click", () => removeReference(i));
+
+    const img = document.createElement("img");
+    img.alt = r.name || "";
+    img.src = `data:${r.mimeType};base64,${r.dataB64}`;
+
+    const button = document.createElement("button");
+    button.className = "x";
+    button.title = "Remove";
+    button.type = "button";
+    button.textContent = "×";
+
+    const caption = document.createElement("span");
+    caption.className = "caption";
+    caption.textContent = r.name || "";
+
+    button.addEventListener("click", () => removeReference(i));
+
+    div.appendChild(img);
+    div.appendChild(button);
+    div.appendChild(caption);
     wrap.appendChild(div);
   });
   // Disable the file input once we hit 3 refs.
