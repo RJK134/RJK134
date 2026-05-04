@@ -484,6 +484,10 @@ kbd {
   font-size: 12px;
   outline: none;
 }
+.generation-log-wrap summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .generation-log {
   margin: 8px 0 0;
   padding: 10px;
