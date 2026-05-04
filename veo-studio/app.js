@@ -898,14 +898,21 @@ function logGen(shotId, msg) {
 
 /* ----- Veo HTTP API ----- */
 
+const VEO_API_ALLOWED_HOSTS = new Set(["generativelanguage.googleapis.com"]);
+
 async function veoFetch(path, init = {}) {
   if (!settings.apiKey) throw new Error("Add your Gemini API key in Settings first.");
-  const url = path.startsWith("http") ? path : `${VEO_API_BASE}/${path.replace(/^\//, "")}`;
-  const headers = {
-    "x-goog-api-key": settings.apiKey,
-    "Content-Type": "application/json",
-    ...(init.headers || {}),
-  };
+  const isAbsoluteUrl = /^https?:\/\//i.test(path);
+  const url = isAbsoluteUrl ? path : `${VEO_API_BASE}/${path.replace(/^\//, "")}`;
+  const requestUrl = new URL(url, window.location.href);
+  const isTrustedApiRequest = !isAbsoluteUrl || VEO_API_ALLOWED_HOSTS.has(requestUrl.hostname);
+  const headers = new Headers(init.headers || {});
+
+  if (isTrustedApiRequest) {
+    if (!headers.has("x-goog-api-key")) headers.set("x-goog-api-key", settings.apiKey);
+    if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  }
+
   const res = await fetch(url, { ...init, headers });
   if (!res.ok) {
     let errText = `${res.status} ${res.statusText}`;
