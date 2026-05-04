@@ -558,7 +558,12 @@ function addShot(afterId) {
 function duplicateShot() {
   const shot = activeShot();
   if (!shot) return;
-  const copy = { ...shot, id: uid(), title: (shot.title || "Untitled") + " (copy)" };
+  const copy = {
+    ...shot,
+    id: uid(),
+    title: (shot.title || "Untitled") + " (copy)",
+    referenceImageData: (shot.referenceImageData || []).map((r) => ({ ...r })),
+  };
   const idx = state.shots.findIndex((s) => s.id === shot.id);
   state.shots.splice(idx + 1, 0, copy);
   state.activeShotId = copy.id;
