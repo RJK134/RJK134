@@ -1,56 +1,68 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# =============================================================
-# Workhorse Nightly Backup Script
-# Called by n8n at 02:00 daily
-# =============================================================
-
 DATESTAMP=$(date +%Y-%m-%d)
-LOGFILE="/var/log/workhorse-backup.log"
+LOGFILE="/mnt/usb-archive/logs/backup.log"
 CONTAINER="workhorse-postgres"
 DB_NAME="workhorse"
 DB_USER="workhorse_user"
-USB_DIR="/mnt/usb-archive"
+
+SSD_ARCHIVE="/mnt/usb-archive"
+TOSHIBA="/media/richard-knapp/Old MS File/workhorse-archive"
+GDRIVE="gdrive5tb:workhorse-archive"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOGFILE"; }
 
 log "=== Starting backup for ${DATESTAMP} ==="
 
-# Check USB is mounted
-if ! mountpoint -q "$USB_DIR"; then
-  log "ERROR: USB archive not mounted at ${USB_DIR}"
-  exit 1
+# 1. Database dump to SSD archive
+log "Dumping PostgreSQL database..."
+mkdir -p "${SSD_ARCHIVE}/backups/daily"
+docker exec "$CONTAINER" pg_dump -U "$DB_USER" "$DB_NAME" | \
+  gzip > "${SSD_ARCHIVE}/backups/daily/workhorse-${DATESTAMP}.sql.gz"
+log "  Database dump saved"
+
+# 2. Sync scraper raw data to SSD archive
+log "Syncing scraper output..."
+rsync -a /srv/scrapers/output/ "${SSD_ARCHIVE}/raw/" 2>/dev/null || true
+log "  Scraper data synced to SSD"
+
+# 3. Copy to TOSHIBA if mounted
+if [ -d "$TOSHIBA" ]; then
+  log "Syncing to TOSHIBA..."
+  rsync -a "${SSD_ARCHIVE}/backups/" "${TOSHIBA}/backups/" 2>/dev/null || true
+  rsync -a "${SSD_ARCHIVE}/raw/" "${TOSHIBA}/raw/" 2>/dev/null || true
+  rsync -a "${SSD_ARCHIVE}/reports/" "${TOSHIBA}/reports/" 2>/dev/null || true
+  log "  TOSHIBA sync complete"
+else
+  log "  TOSHIBA not mounted — skipping"
 fi
 
-# 1. Database dump
-log "Dumping PostgreSQL database..."
-docker exec "$CONTAINER" pg_dump -U "$DB_USER" "$DB_NAME" | \
-  gzip > "${USB_DIR}/daily/workhorse-${DATESTAMP}.sql.gz"
-log "  Database dump saved: workhorse-${DATESTAMP}.sql.gz"
+# 4. Sync to Google Drive
+if command -v rclone &>/dev/null; then
+  log "Syncing to Google Drive..."
+  rclone sync "${SSD_ARCHIVE}/backups/" "${GDRIVE}/backups/" --quiet 2>/dev/null || true
+  rclone sync "${SSD_ARCHIVE}/raw/" "${GDRIVE}/raw/" --quiet 2>/dev/null || true
+  rclone sync "${SSD_ARCHIVE}/reports/" "${GDRIVE}/reports/" --quiet 2>/dev/null || true
+  rclone copy "${SSD_ARCHIVE}/backups/daily/workhorse-${DATESTAMP}.sql.gz" \
+    "${GDRIVE}/databases/" --quiet 2>/dev/null || true
+  log "  Google Drive sync complete"
+else
+  log "  rclone not found — skipping cloud sync"
+fi
 
-# 2. Sync parsed data
-log "Syncing parsed project data..."
-mkdir -p "${USB_DIR}/daily/parsed-${DATESTAMP}"
-rsync -a /srv/projects/*/parsed/ "${USB_DIR}/daily/parsed-${DATESTAMP}/" 2>/dev/null || true
-log "  Parsed data synced"
-
-# 3. Sync digests
-log "Syncing digest files..."
-mkdir -p "${USB_DIR}/daily/digests-${DATESTAMP}"
-rsync -a /srv/shared/digests/ "${USB_DIR}/daily/digests-${DATESTAMP}/" 2>/dev/null || true
-log "  Digests synced"
-
-# 4. Prune daily backups older than 30 days
-log "Pruning daily backups older than 30 days..."
-find "${USB_DIR}/daily/" -maxdepth 1 -mtime +30 -exec rm -rf {} \; 2>/dev/null || true
+# 5. Prune daily backups older than 30 days
+log "Pruning backups older than 30 days..."
+find "${SSD_ARCHIVE}/backups/daily/" -maxdepth 1 -mtime +30 -exec rm -rf {} \; 2>/dev/null || true
 log "  Pruning complete"
 
-# 5. Weekly full archive on Sundays
+# 6. Weekly full archive on Sundays
 if [ "$(date +%u)" = "7" ]; then
-  log "Sunday detected — creating weekly project archive..."
-  tar -czf "${USB_DIR}/weekly/projects-${DATESTAMP}.tar.gz" /srv/projects/ 2>/dev/null || true
-  log "  Weekly archive saved: projects-${DATESTAMP}.tar.gz"
+  log "Sunday — creating weekly scraper archive..."
+  mkdir -p "${SSD_ARCHIVE}/backups/weekly"
+  tar -czf "${SSD_ARCHIVE}/backups/weekly/scrapers-${DATESTAMP}.tar.gz" /srv/scrapers/ \
+    --exclude='.venv' --exclude='__pycache__' 2>/dev/null || true
+  log "  Weekly archive saved"
 fi
 
 log "=== Backup complete for ${DATESTAMP} ==="
