@@ -68,6 +68,9 @@ fi
 ok "Local setup source verified at ${SCRIPT_DIR}"
 
 # Copy setup dir to configured location for consistent downstream paths
+if [ -z "${SETUP_DIR}" ] || [ "${SETUP_DIR}" = "/" ] || [ "${SETUP_DIR}" = "${HOME_DIR}" ]; then
+  fail "Unsafe SETUP_DIR value: '${SETUP_DIR}'. Refusing to remove."
+fi
 mkdir -p "${HOME_DIR}"
 rm -rf "${SETUP_DIR}"
 cp -r "${SCRIPT_DIR}" "${SETUP_DIR}"

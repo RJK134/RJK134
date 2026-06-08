@@ -48,6 +48,8 @@ export SETUP_DIR=~/workhorse-setup
 chmod +x "${SETUP_DIR}"/*.sh
 ```
 
+Keep `SETUP_DIR` exported in the same shell session for all commands below.
+
 ### 2. Run the setup script
 
 ```bash
