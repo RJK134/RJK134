@@ -42,15 +42,16 @@ and digest generation across 8 active projects on a headless Ubuntu MacBook Pro.
 ### 1. Transfer files to the MacBook
 
 ```bash
-scp -r ./workhorse-setup/ youruser@<mac-ip>:/home/youruser/
+scp -r ./workhorse-setup/ youruser@<mac-ip>:/home/youruser/workhorse-setup
 ssh youruser@<mac-ip>
-chmod +x ~/workhorse-setup/*.sh
+export SETUP_DIR=~/workhorse-setup
+chmod +x "${SETUP_DIR}"/*.sh
 ```
 
 ### 2. Run the setup script
 
 ```bash
-sudo bash ~/workhorse-setup/setup.sh
+sudo bash "${SETUP_DIR}/setup.sh"
 ```
 
 This will:
@@ -79,10 +80,10 @@ tailscale ip -4
 
 ```bash
 # Copy config files to /srv/core/
-cp ~/workhorse-setup/docker-compose.yml /srv/core/
-cp ~/workhorse-setup/schema.sql /srv/core/
-cp ~/workhorse-setup/backup.sh /srv/core/
-cp ~/workhorse-setup/health-check.sh /srv/core/
+cp "${SETUP_DIR}/docker-compose.yml" /srv/core/
+cp "${SETUP_DIR}/schema.sql" /srv/core/
+cp "${SETUP_DIR}/backup.sh" /srv/core/
+cp "${SETUP_DIR}/health-check.sh" /srv/core/
 chmod +x /srv/core/*.sh
 
 # Start the stack
@@ -98,7 +99,7 @@ Confirm both `workhorse-postgres` and `workhorse-n8n` are running.
 ### 6. Initialise the database
 
 ```bash
-bash ~/workhorse-setup/init-db.sh
+bash "${SETUP_DIR}/init-db.sh"
 ```
 
 Verify: you should see 11 tables listed and 8 project rows seeded.
@@ -106,7 +107,7 @@ Verify: you should see 11 tables listed and 8 project rows seeded.
 ### 7. Enable auto-start on boot
 
 ```bash
-sudo cp ~/workhorse-setup/workhorse-stack.service /etc/systemd/system/
+sudo cp "${SETUP_DIR}/workhorse-stack.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable workhorse-stack.service
 ```

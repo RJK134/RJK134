@@ -3,8 +3,7 @@ set -euo pipefail
 
 # =============================================================
 # WORKHORSE ONE-SHOT DEPLOYMENT
-# User: richard | Repo: RJK134/RJK134
-# Run this on the MacBook Pro terminal as user 'richard'
+# Run this on the target MacBook terminal as user 'richard'
 # =============================================================
 
 RED='\033[0;31m'
@@ -19,10 +18,9 @@ fail() { echo -e "${RED}[FAIL]${NC} $1"; exit 1; }
 info() { echo -e "${CYAN}[INFO]${NC} $1"; }
 phase() { echo ""; echo -e "${CYAN}══════════════════════════════════════════${NC}"; echo -e "${CYAN} PHASE $1${NC}"; echo -e "${CYAN}══════════════════════════════════════════${NC}"; echo ""; }
 
-REPO_URL="https://github.com/RJK134/RJK134.git"
-BRANCH="claude/disable-repository-requirement-ugrrT"
-HOME_DIR="/home/richard"
-SETUP_DIR="${HOME_DIR}/workhorse-setup"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOME_DIR="${HOME_DIR:-/home/richard}"
+SETUP_DIR="${SETUP_DIR:-${HOME_DIR}/workhorse-setup}"
 
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
@@ -61,30 +59,18 @@ ip a | grep "inet " | grep -v 127.0.0.1 | awk '{print "  " $2}'
 echo ""
 
 # -----------------------------------------------------------
-phase "1 — CLONE REPO AND GET FILES"
+phase "1 — PREPARE LOCAL SETUP FILES"
 # -----------------------------------------------------------
 
-if [ -d "${HOME_DIR}/RJK134" ]; then
-  info "Repo directory exists, pulling latest..."
-  cd "${HOME_DIR}/RJK134"
-  git fetch origin "${BRANCH}" || fail "Could not fetch branch"
-  git checkout "${BRANCH}" || fail "Could not checkout branch"
-  git pull origin "${BRANCH}" || true
-else
-  info "Cloning repo..."
-  cd "${HOME_DIR}"
-  git clone "${REPO_URL}" || fail "Could not clone repo"
-  cd "${HOME_DIR}/RJK134"
-  git checkout "${BRANCH}" || fail "Could not checkout branch ${BRANCH}"
+if [ ! -f "${SCRIPT_DIR}/docker-compose.yml" ] || [ ! -f "${SCRIPT_DIR}/schema.sql" ]; then
+  fail "Required setup files not found beside deploy.sh. Run from the workhorse-setup directory."
 fi
+ok "Local setup source verified at ${SCRIPT_DIR}"
 
-if [ ! -d "${HOME_DIR}/RJK134/workhorse-setup" ]; then
-  fail "workhorse-setup/ directory not found in repo. Check branch."
-fi
-ok "Repo cloned and branch checked out"
-
-# Copy setup dir to home for easier access
-cp -r "${HOME_DIR}/RJK134/workhorse-setup" "${HOME_DIR}/" 2>/dev/null || true
+# Copy setup dir to configured location for consistent downstream paths
+mkdir -p "${HOME_DIR}"
+rm -rf "${SETUP_DIR}"
+cp -r "${SCRIPT_DIR}" "${SETUP_DIR}"
 chmod +x "${SETUP_DIR}"/*.sh
 ok "Setup files ready at ${SETUP_DIR}"
 
