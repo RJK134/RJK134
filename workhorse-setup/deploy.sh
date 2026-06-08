@@ -69,11 +69,15 @@ ok "Local setup source verified at ${SCRIPT_DIR}"
 
 # Copy setup dir to configured location for consistent downstream paths
 if [ -z "${SETUP_DIR}" ] || [ "${SETUP_DIR}" = "/" ] || [ "${SETUP_DIR}" = "${HOME_DIR}" ]; then
-  fail "Unsafe SETUP_DIR value: '${SETUP_DIR}'. Refusing to remove."
+  fail "Unsafe SETUP_DIR value: '${SETUP_DIR}'."
 fi
+case "${SETUP_DIR}" in
+  "${HOME_DIR}"/*) ;;
+  *) fail "SETUP_DIR must be under HOME_DIR. Got: ${SETUP_DIR}" ;;
+esac
 mkdir -p "${HOME_DIR}"
-rm -rf "${SETUP_DIR}"
-cp -r "${SCRIPT_DIR}" "${SETUP_DIR}"
+mkdir -p "${SETUP_DIR}"
+cp -a "${SCRIPT_DIR}/." "${SETUP_DIR}/"
 chmod +x "${SETUP_DIR}"/*.sh
 ok "Setup files ready at ${SETUP_DIR}"
 

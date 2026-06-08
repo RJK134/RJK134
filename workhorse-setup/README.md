@@ -49,6 +49,7 @@ chmod +x "${SETUP_DIR}"/*.sh
 ```
 
 Keep `SETUP_DIR` exported in the same shell session for all commands below.
+If you open a new shell session, re-run the `export SETUP_DIR=...` command first.
 
 ### 2. Run the setup script
 
