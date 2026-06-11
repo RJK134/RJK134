@@ -20,7 +20,8 @@ const VEO_VALID_DURATIONS = [4, 6, 8];
 const VEO_VALID_ASPECTS = new Set(["16:9", "9:16"]);
 const VEO_VALID_RESOLUTIONS = new Set(["720p", "1080p", "4K"]);
 const PROMPT_TOKEN_BUDGET = 1024;
-const RESEARCH_LINKS_PATH = "shakespeare-sources.json";
+const SHAKESPEARE_PROJECT_SLUG = "shakespeare-is-boring";
+const SHAKESPEARE_SOURCES_PATH = "shakespeare-sources.json";
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
@@ -221,13 +222,13 @@ function defaultAvoidText() {
   return (state.project.defaultAvoid || "").trim();
 }
 
-function timestampTag() {
+function formatTimestampForFilename() {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
 function escapeHtml(text) {
-  return String(text ?? "").replace(/[&<>"]/g, (char) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[char]
+  return String(text ?? "").replace(/[&<>"']/g, (char) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[char]
   ));
 }
 
@@ -607,7 +608,7 @@ function renderResearchLinks() {
 
 async function loadResearchLinks() {
   try {
-    const res = await fetch(RESEARCH_LINKS_PATH, { cache: "no-store" });
+    const res = await fetch(SHAKESPEARE_SOURCES_PATH, { cache: "no-store" });
     if (!res.ok) throw new Error(String(res.status));
     const json = await res.json();
     if (Array.isArray(json?.sources) && json.sources.length) {
@@ -740,6 +741,7 @@ function applyProjectTemplate() {
   if (!templateId) return;
   const tpl = PROJECT_TEMPLATES[templateId];
   if (!tpl) return;
+  const previousDefaultAvoid = defaultAvoidText();
 
   state.project = normalizeProject({
     ...state.project,
@@ -755,7 +757,9 @@ function applyProjectTemplate() {
 
   state.shots = state.shots.map((shot, index) => {
     const next = { ...shot };
-    if (!next.avoid?.trim()) next.avoid = tpl.defaultAvoid;
+    if (!next.avoid?.trim() || next.avoid.trim() === previousDefaultAvoid) {
+      next.avoid = tpl.defaultAvoid;
+    }
     if (!next.promptLocked) next.prompt = buildPrompt(next, state.project);
     if (index === 0 && !next.title) next.title = "Opening shot";
     return next;
@@ -876,15 +880,15 @@ function promptFor(shot) {
   return shot.promptLocked ? (shot.prompt ?? "") : buildPrompt(shot, state.project);
 }
 
-function exportJSON() {
-  download(`${slugify(state.project.title)}-${timestampTag()}-backup.json`, JSON.stringify(state, null, 2), "application/json");
+function exportBackupJSON() {
+  download(`${slugify(state.project.title)}-${formatTimestampForFilename()}-backup.json`, JSON.stringify(state, null, 2), "application/json");
 }
 
 function exportWorkhorseJSON() {
   const payload = {
     schemaVersion: 1,
     exportedAt: new Date().toISOString(),
-    projectSlug: "shakespeare-is-boring",
+    projectSlug: SHAKESPEARE_PROJECT_SLUG,
     title: state.project.title,
     logline: state.project.logline,
     aspectRatio: state.project.aspectRatio,
@@ -909,7 +913,7 @@ function exportWorkhorseJSON() {
       notes: shot.notes,
     })),
   };
-  download(`${slugify(state.project.title)}-${timestampTag()}-workhorse.json`, JSON.stringify(payload, null, 2), "application/json");
+  download(`${slugify(state.project.title)}-${formatTimestampForFilename()}-workhorse.json`, JSON.stringify(payload, null, 2), "application/json");
 }
 
 function exportBrief() {
@@ -1049,7 +1053,7 @@ function wireActions() {
         case "delete-shot": deleteShot(); break;
         case "new-project": newProject(); break;
         case "import": els.fileInput.click(); break;
-        case "export-json": exportJSON(); break;
+        case "export-json": exportBackupJSON(); break;
         case "export-workhorse-json": exportWorkhorseJSON(); break;
         case "export-brief": exportBrief(); break;
         case "export-prompts": copyAllPrompts(); break;
@@ -1267,12 +1271,16 @@ async function fetchVideoBlob(sample) {
   return res.blob();
 }
 
-function workhorsePayload(shot, blob) {
+function generateVideoExportFilename(projectTitle, shotNumber, shotTitle) {
+  return `${slugify(projectTitle)}-${String(shotNumber).padStart(2, "0")}-${slugify(shotTitle || "shot")}.mp4`;
+}
+
+function workhorsePayload(shot, blob, shotNumber) {
   return {
-    projectSlug: "shakespeare-is-boring",
+    projectSlug: SHAKESPEARE_PROJECT_SLUG,
     projectTitle: state.project.title,
     shotId: shot.id,
-    shotNumber: state.shots.findIndex((item) => item.id === shot.id) + 1,
+    shotNumber,
     shotTitle: shot.title || "Untitled shot",
     duration: Number(shot.duration) || 0,
     aspectRatio: state.project.aspectRatio,
@@ -1282,7 +1290,7 @@ function workhorsePayload(shot, blob) {
     prompt: promptFor(shot),
     avoid: shot.avoid || "",
     references: formatReferences(shot.referenceImages),
-    exportFileName: `${slugify(state.project.title)}-${String(state.shots.findIndex((item) => item.id === shot.id) + 1).padStart(2, "0")}-${slugify(shot.title || "shot")}.mp4`,
+    exportFileName: generateVideoExportFilename(state.project.title, shotNumber, shot.title),
     fileSizeBytes: blob.size,
   };
 }
@@ -1290,13 +1298,24 @@ function workhorsePayload(shot, blob) {
 async function notifyWorkhorse(shot, blob) {
   const webhookUrl = (settings.workhorseWebhookUrl || "").trim();
   if (!webhookUrl) return;
-  const url = new URL(webhookUrl, window.location.href);
-  if (!/^https?:$/i.test(url.protocol)) throw new Error("Workhorse webhook must use http or https.");
-  const res = await fetch(url.toString(), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(workhorsePayload(shot, blob)),
-  });
+  if (!/^https?:\/\//i.test(webhookUrl)) {
+    throw new Error("Workhorse webhook must be an absolute http(s) URL.");
+  }
+  const url = new URL(webhookUrl);
+  if (url.protocol === "http:" && !/^(localhost|127\.0\.0\.1)$/i.test(url.hostname)) {
+    throw new Error("Use HTTPS for remote workhorse webhooks; plain HTTP is only allowed for localhost.");
+  }
+  const shotNumber = state.shots.findIndex((item) => item.id === shot.id) + 1;
+  let res;
+  try {
+    res = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(workhorsePayload(shot, blob, shotNumber)),
+    });
+  } catch (error) {
+    throw new Error(`Webhook request failed; check the endpoint URL, CORS policy, and network access. ${error.message || error}`);
+  }
   if (!res.ok) throw new Error(`Webhook failed: ${res.status} ${res.statusText}`);
 }
 

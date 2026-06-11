@@ -17,11 +17,14 @@
       "id": "b2c3d4e5-2222-4000-8000-000000000002",
       "name": "Insert Generated Video Entity",
       "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
+      "typeVersion": 2.6,
       "position": [260, 0],
       "parameters": {
         "operation": "executeQuery",
-        "query": "={{ \"WITH project AS (SELECT id FROM projects WHERE slug = 'shakespeare-is-boring' LIMIT 1) INSERT INTO entities (project_id, entity_type, name, description, raw_data, notes, status, first_seen_at, last_seen_at) SELECT project.id, 'generated_video', 'Veo render — Shot ' || COALESCE($json.body.shotNumber, 0) || ' — ' || COALESCE(($json.body.shotTitle || '').replace(/'/g, \\\"''\\\"), 'Untitled shot'), 'Generated from Veo Studio for ' || COALESCE(($json.body.projectTitle || '').replace(/'/g, \\\"''\\\"), 'Shakespeare is Boring') || '. Prompt: ' || COALESCE(($json.body.prompt || '').replace(/'/g, \\\"''\\\"), ''), CAST('\" + JSON.stringify($json.body || {}).replace(/'/g, \\\"''\\\") + \"' AS jsonb), COALESCE(($json.body.exportFileName || '').replace(/'/g, \\\"''\\\"), ''), 'active', NOW(), NOW() FROM project;\" }}"
+        "query": "WITH project AS (\n  SELECT id FROM projects WHERE slug = 'shakespeare-is-boring' LIMIT 1\n)\nINSERT INTO entities (\n  project_id, entity_type, name, description, raw_data, notes, status, first_seen_at, last_seen_at\n)\nSELECT\n  project.id,\n  'generated_video',\n  $1,\n  $2,\n  $3::jsonb,\n  $4,\n  'active',\n  NOW(),\n  NOW()\nFROM project;",
+        "options": {
+          "queryReplacement": "={{ ['Veo render — Shot ' + ($json.body.shotNumber || 0) + ' — ' + ($json.body.shotTitle || 'Untitled shot'), 'Generated from Veo Studio for ' + ($json.body.projectTitle || 'Shakespeare is Boring') + '. Prompt: ' + ($json.body.prompt || ''), JSON.stringify($json.body || {}), ($json.body.exportFileName || '')] }}"
+        }
       },
       "credentials": {
         "postgres": {
@@ -38,7 +41,7 @@
       "position": [520, 0],
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={\"ok\":true,\"project\":\"shakespeare-is-boring\",\"shotNumber\":$json.body.shotNumber}"
+        "responseBody": "={\"ok\":true,\"project\":\"shakespeare-is-boring\"}"
       }
     }
   ],
