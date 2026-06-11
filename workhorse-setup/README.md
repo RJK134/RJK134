@@ -10,7 +10,7 @@ and digest generation across 8 active projects on a headless Ubuntu MacBook Pro.
 - **PostgreSQL 15** on port 5433 (avoids SJMS conflict on 5432) with a full
   schema for tracking projects, sources, captures, entities, opportunities,
   market signals, notes, alerts, digests, and health logs
-- **n8n** workflow automation on port 5678 with 14 pre-built workflows for
+- **n8n** workflow automation on port 5678 with 15 pre-built workflows for
   daily/weekly data collection, digest generation, backups, and health checks
 - **Automated backups** to USB archive with 30-day rolling retention
 - **System health monitoring** with alert thresholds
@@ -28,7 +28,7 @@ and digest generation across 8 active projects on a headless Ubuntu MacBook Pro.
 | `health-check.sh` | System health JSON output (copy to `/srv/core/`) |
 | `workhorse-stack.service` | systemd unit for auto-start on boot |
 | `.env.example` | Environment variable template |
-| `n8n-workflows/*.json` | 14 importable n8n workflow definitions |
+| `n8n-workflows/*.json` | 15 importable n8n workflow definitions |
 
 ## Prerequisites
 
@@ -181,6 +181,9 @@ workflows page). Import each file from `n8n-workflows/`:
 **Maintenance:**
 13. `nightly-backup.json` — 02:00 UTC
 14. `weekly-db-cleanup.json` — 01:00 UTC Sunday
+
+**Manual / event-driven:**
+15. `shakespeare-generated-video-register.json` — webhook endpoint for Veo Studio render metadata
 
 ### 12. Activate workflows
 

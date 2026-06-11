@@ -1,0 +1,21 @@
+{
+  "updatedAt": "2026-06-11T00:00:00Z",
+  "projectSlug": "shakespeare-is-boring",
+  "sources": [
+    {
+      "name": "Shakespeare's Globe",
+      "url": "https://www.shakespearesglobe.com/",
+      "note": "Programming, productions, education, and venue context from the workhorse refresh feed."
+    },
+    {
+      "name": "Royal Shakespeare Company",
+      "url": "https://www.rsc.org.uk/",
+      "note": "Staging references, performance context, and current production signals."
+    },
+    {
+      "name": "Folger Shakespeare Library",
+      "url": "https://shakespeare.folger.edu/",
+      "note": "Textual references, teaching context, and accessible scholarship."
+    }
+  ]
+}
