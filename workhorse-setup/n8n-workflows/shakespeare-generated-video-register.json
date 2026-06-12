@@ -1,0 +1,77 @@
+{
+  "name": "Shakespeare Generated Video Register",
+  "nodes": [
+    {
+      "id": "b2c3d4e5-2222-4000-8000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "shakespeare-veo-register",
+        "responseMode": "responseNode"
+      }
+    },
+    {
+      "id": "b2c3d4e5-2222-4000-8000-000000000002",
+      "name": "Insert Generated Video Entity",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [260, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH project AS (\n  SELECT id FROM projects WHERE slug = 'shakespeare-is-boring' LIMIT 1\n)\nINSERT INTO entities (\n  project_id, entity_type, name, description, raw_data, notes, status, first_seen_at, last_seen_at\n)\nSELECT\n  project.id,\n  'generated_video',\n  $1,\n  $2,\n  $3::jsonb,\n  $4,\n  'active',\n  NOW(),\n  NOW()\nFROM project;",
+        "options": {
+          "queryReplacement": "={{ ['Veo render — Shot ' + ($json.body.shotNumber || 0) + ' — ' + ($json.body.shotTitle || 'Untitled shot'), 'Generated from Veo Studio for ' + ($json.body.projectTitle || 'Shakespeare is Boring') + '. Prompt: ' + ($json.body.prompt || ''), JSON.stringify($json.body || {}), ($json.body.exportFileName || '')] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Workhorse DB"
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-2222-4000-8000-000000000003",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [520, 0],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"ok\":true,\"project\":\"shakespeare-is-boring\"}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Insert Generated Video Entity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Generated Video Entity": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}

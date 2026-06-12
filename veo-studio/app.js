@@ -20,8 +20,102 @@ const VEO_VALID_DURATIONS = [4, 6, 8];
 const VEO_VALID_ASPECTS = new Set(["16:9", "9:16"]);
 const VEO_VALID_RESOLUTIONS = new Set(["720p", "1080p", "4K"]);
 const PROMPT_TOKEN_BUDGET = 1024;
+const SHAKESPEARE_PROJECT_SLUG = "shakespeare-is-boring";
+const SHAKESPEARE_SOURCES_PATH = "shakespeare-sources.json";
 
 const uid = () => Math.random().toString(36).slice(2, 9);
+
+const PROJECT_TEMPLATES = {
+  "shib-shorts": {
+    label: "Shakespeare is Boring — Shorts / Reels",
+    title: "Shakespeare is Boring — Shorts",
+    logline: "Fast, witty vertical Shakespeare explainers that make the canon feel contemporary.",
+    aspectRatio: "9:16",
+    resolution: "1080p",
+    style: "TikTok vertical native",
+    styleNotes: "Punchy, contemporary, anti-dusty Shakespeare explainer. Clear faces, readable blocking, warm skin tones, playful authority, brisk pacing, modern hooks, no museum-piece stiffness.",
+    defaultAvoid: "No text overlays, no logos, no watermarks, no muddy dialogue, no accidental crowd glitches, no costume-party parody unless explicitly requested.",
+  },
+  "shib-youtube": {
+    label: "Shakespeare is Boring — YouTube explainer",
+    title: "Shakespeare is Boring — YouTube",
+    logline: "Accessible, high-clarity Shakespeare storytelling for longer-form explainers and scene breakdowns.",
+    aspectRatio: "16:9",
+    resolution: "1080p",
+    style: "Documentary vérité",
+    styleNotes: "Smart, inviting Shakespeare coverage that feels cinematic but legible. Prioritise expressive performances, clean geography, motivated camera movement, and references to Globe/RSC/Folger material where helpful.",
+    defaultAvoid: "No text overlays, no logos, no muddy staging, no horror-gore excess, no inaccurate faux-Elizabethan clutter unless motivated by the brief.",
+  },
+};
+
+const SHOT_PRESETS = {
+  "explainer-host": {
+    title: "Host explainer to camera",
+    shotType: "Medium close-up",
+    subject: "Presenter addressing camera",
+    action: "delivers a concise, energetic Shakespeare takeaway",
+    setting: "clean studio corner with subtle theatre cues",
+    lighting: "Soft key with gentle edge light, natural contrast",
+    mood: "Witty, confident, welcoming",
+    camera: "Eye-level slow push",
+    lens: "50mm standard",
+    filmStock: "Digital Arri Alexa",
+    dialogue: "Here is the bit everyone misses about this scene.",
+    ambient: "quiet studio room tone",
+    description: "Direct address with crisp eyeline, natural hand gestures, and enough negative space for later captions if needed.",
+    avoid: "No lectern stiffness, no exaggerated YouTuber mugging, no fake lecture hall backdrop.",
+  },
+  "dramatized-excerpt": {
+    title: "Dramatized scene excerpt",
+    shotType: "Medium wide",
+    subject: "Two performers in character",
+    action: "play the emotional pivot of the scene with clear blocking",
+    setting: "minimal stage-like environment inspired by the Globe",
+    lighting: "Directional warm key with theatrical falloff",
+    mood: "Charged, emotionally legible, alive",
+    camera: "Slow dolly in toward subject",
+    lens: "35mm",
+    filmStock: "Kodak Vision3 500T",
+    sfx: "soft footfalls on timber boards",
+    ambient: "subtle theatre room tone",
+    description: "Keep staging readable and performance-led, with one strong emotional beat and uncluttered background detail.",
+    avoid: "No overblown battle spectacle, no fantasy creatures, no parody cod-Elizabethan acting.",
+  },
+  "globe-rsc-broll": {
+    title: "Globe / RSC location B-roll",
+    shotType: "Wide",
+    subject: "Historic theatre exterior or rehearsal detail",
+    action: "reveals place and atmosphere with elegant movement",
+    setting: "Shakespeare performance venue or archive-inspired environment",
+    timeOfDay: "Golden hour",
+    lighting: "Soft natural daylight with gentle contrast",
+    mood: "Curious, textured, inviting",
+    camera: "Smooth tracking shot alongside subject",
+    lens: "24mm wide",
+    filmStock: "Digital Arri Alexa",
+    ambient: "distant city ambience and soft crowd murmur",
+    description: "Use the shot as visual glue around explanations, grounding the piece in real Shakespeare institutions and spaces.",
+    avoid: "No empty tourist-board clichés, no random contemporary branding, no obvious VFX wobble in architecture.",
+  },
+};
+
+const DEFAULT_SHAKESPEARE_SOURCES = [
+  {
+    name: "Shakespeare's Globe",
+    url: "https://www.shakespearesglobe.com/",
+    note: "Programming, productions, education, and venue context from the workhorse refresh feed.",
+  },
+  {
+    name: "Royal Shakespeare Company",
+    url: "https://www.rsc.org.uk/",
+    note: "Staging references, performance context, and current production signals.",
+  },
+  {
+    name: "Folger Shakespeare Library",
+    url: "https://shakespeare.folger.edu/",
+    note: "Textual references, teaching context, and accessible scholarship.",
+  },
+];
 
 function newShot(overrides = {}) {
   const base = {
@@ -62,10 +156,12 @@ function freshState() {
     project: {
       title: "Untitled Project",
       logline: "",
+      templateId: "",
       aspectRatio: "16:9",
       resolution: "1080p",
       style: "",
       styleNotes: "",
+      defaultAvoid: "",
     },
     shots: [
       newShot({
@@ -120,6 +216,20 @@ function normalizeProject(raw) {
   if (!VEO_VALID_ASPECTS.has(merged.aspectRatio)) merged.aspectRatio = "16:9";
   if (!VEO_VALID_RESOLUTIONS.has(merged.resolution)) merged.resolution = "1080p";
   return merged;
+}
+
+function defaultAvoidText() {
+  return (state.project.defaultAvoid || "").trim();
+}
+
+function formatTimestampForFilename() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function escapeHtml(text) {
+  return String(text ?? "").replace(/[&<>"']/g, (char) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[char]
+  ));
 }
 
 function migrateShot(raw) {
@@ -280,6 +390,10 @@ const els = {
   refUploadInput: null,
   refThumbs: null,
   renderAllBtn: null,
+  projectTemplateSelect: null,
+  shotPresetSelect: null,
+  researchLinks: null,
+  workhorseWebhookInput: null,
 };
 
 function bindProjectInputs() {
@@ -475,6 +589,35 @@ function setBind(key, val) {
   });
 }
 
+let researchLinksState = DEFAULT_SHAKESPEARE_SOURCES;
+
+function renderResearchLinks() {
+  const wrap = els.researchLinks;
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  researchLinksState.forEach((link) => {
+    const a = document.createElement("a");
+    a.className = "research-link";
+    a.href = link.url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.innerHTML = `<strong>${escapeHtml(link.name)}</strong><span>${escapeHtml(link.note || "")}</span>`;
+    wrap.appendChild(a);
+  });
+}
+
+async function loadResearchLinks() {
+  try {
+    const res = await fetch(SHAKESPEARE_SOURCES_PATH, { cache: "no-store" });
+    if (!res.ok) throw new Error(String(res.status));
+    const json = await res.json();
+    if (Array.isArray(json?.sources) && json.sources.length) {
+      researchLinksState = json.sources;
+    }
+  } catch {}
+  renderResearchLinks();
+}
+
 function renderChecks() {
   const list = [];
   const total = totalRuntime();
@@ -521,6 +664,7 @@ function renderChecks() {
   if (!state.project.styleNotes) {
     list.push({ kind: "info", text: "Tip: fill the style reference to keep characters and palette consistent across shots." });
   }
+  list.push({ kind: "info", text: "Backup reminder: use Export backup JSON before clearing browser data or moving this planner to another machine." });
   if (state.shots.length && !list.some((item) => item.kind === "warn")) {
     list.unshift({ kind: "ok", text: "Looks ready to render with Veo 3.1." });
   }
@@ -545,7 +689,11 @@ function selectShot(id) {
 }
 
 function addShot(afterId) {
-  const shot = newShot({ title: `Shot ${state.shots.length + 1}`, duration: 8 });
+  const shot = newShot({
+    title: `Shot ${state.shots.length + 1}`,
+    duration: 8,
+    avoid: defaultAvoidText(),
+  });
   const idx = afterId ? state.shots.findIndex((s) => s.id === afterId) : state.shots.length - 1;
   state.shots.splice(idx + 1, 0, shot);
   state.activeShotId = shot.id;
@@ -586,6 +734,86 @@ function deleteShot() {
   renderShotList();
   renderEditor();
   renderDerived();
+}
+
+function applyProjectTemplate() {
+  const templateId = els.projectTemplateSelect?.value;
+  if (!templateId) return;
+  const tpl = PROJECT_TEMPLATES[templateId];
+  if (!tpl) return;
+  const previousDefaultAvoid = defaultAvoidText();
+
+  state.project = normalizeProject({
+    ...state.project,
+    templateId,
+    title: tpl.title,
+    logline: tpl.logline,
+    aspectRatio: tpl.aspectRatio,
+    resolution: tpl.resolution,
+    style: tpl.style,
+    styleNotes: tpl.styleNotes,
+    defaultAvoid: tpl.defaultAvoid,
+  });
+
+  state.shots = state.shots.map((shot, index) => {
+    const next = { ...shot };
+    if (!next.avoid?.trim() || next.avoid.trim() === previousDefaultAvoid) {
+      next.avoid = tpl.defaultAvoid;
+    }
+    if (!next.promptLocked) next.prompt = buildPrompt(next, state.project);
+    if (index === 0 && !next.title) next.title = "Opening shot";
+    return next;
+  });
+
+  saveState();
+  rerenderAll();
+}
+
+function selectedShotPreset() {
+  const presetId = els.shotPresetSelect?.value;
+  return presetId ? SHOT_PRESETS[presetId] : null;
+}
+
+function shotFromPreset(preset, extra = {}) {
+  return newShot({
+    ...preset,
+    avoid: preset.avoid || defaultAvoidText(),
+    ...extra,
+  });
+}
+
+function applyShotPresetToActive() {
+  const preset = selectedShotPreset();
+  const shot = activeShot();
+  if (!preset || !shot) return;
+  Object.assign(shot, shotFromPreset(preset, {
+    id: shot.id,
+    promptLocked: false,
+    referenceImageData: shot.referenceImageData || [],
+    referenceImages: shot.referenceImages || "",
+    firstFrame: shot.firstFrame || "",
+    lastFrame: shot.lastFrame || "",
+    notes: shot.notes || "",
+  }));
+  shot.prompt = buildPrompt(shot, state.project);
+  saveState();
+  renderShotList();
+  renderEditor();
+  renderDerived();
+}
+
+function addPresetShot() {
+  const preset = selectedShotPreset();
+  if (!preset) return;
+  const shot = shotFromPreset(preset);
+  const idx = state.activeShotId
+    ? state.shots.findIndex((s) => s.id === state.activeShotId)
+    : state.shots.length - 1;
+  state.shots.splice(idx + 1, 0, shot);
+  state.activeShotId = shot.id;
+  shot.prompt = buildPrompt(shot, state.project);
+  saveState();
+  rerenderAll();
 }
 
 /* -------------------------- drag and drop reorder -------------------------- */
@@ -652,8 +880,40 @@ function promptFor(shot) {
   return shot.promptLocked ? (shot.prompt ?? "") : buildPrompt(shot, state.project);
 }
 
-function exportJSON() {
-  download(`${slugify(state.project.title)}.json`, JSON.stringify(state, null, 2), "application/json");
+function exportBackupJSON() {
+  download(`${slugify(state.project.title)}-${formatTimestampForFilename()}-backup.json`, JSON.stringify(state, null, 2), "application/json");
+}
+
+function exportWorkhorseJSON() {
+  const payload = {
+    schemaVersion: 1,
+    exportedAt: new Date().toISOString(),
+    projectSlug: SHAKESPEARE_PROJECT_SLUG,
+    title: state.project.title,
+    logline: state.project.logline,
+    aspectRatio: state.project.aspectRatio,
+    resolution: state.project.resolution,
+    style: state.project.style,
+    styleNotes: state.project.styleNotes,
+    defaultAvoid: state.project.defaultAvoid,
+    targetPath: "/srv/projects/shakespeare-is-boring/parsed/",
+    shots: state.shots.map((shot, index) => ({
+      shotNumber: index + 1,
+      id: shot.id,
+      title: shot.title,
+      duration: shot.duration,
+      presetPrompt: promptFor(shot),
+      subject: shot.subject,
+      action: shot.action,
+      setting: shot.setting,
+      camera: shot.camera,
+      dialogue: shot.dialogue,
+      avoid: shot.avoid,
+      references: formatReferences(shot.referenceImages),
+      notes: shot.notes,
+    })),
+  };
+  download(`${slugify(state.project.title)}-${formatTimestampForFilename()}-workhorse.json`, JSON.stringify(payload, null, 2), "application/json");
 }
 
 function exportBrief() {
@@ -775,6 +1035,7 @@ function newProject() {
 
 function rerenderAll() {
   document.querySelectorAll("[data-bind]").forEach((el) => el._bindApply && el._bindApply());
+  if (els.projectTemplateSelect) els.projectTemplateSelect.value = state.project.templateId || "";
   renderShotList();
   renderEditor();
   renderDerived();
@@ -792,9 +1053,13 @@ function wireActions() {
         case "delete-shot": deleteShot(); break;
         case "new-project": newProject(); break;
         case "import": els.fileInput.click(); break;
-        case "export-json": exportJSON(); break;
+        case "export-json": exportBackupJSON(); break;
+        case "export-workhorse-json": exportWorkhorseJSON(); break;
         case "export-brief": exportBrief(); break;
         case "export-prompts": copyAllPrompts(); break;
+        case "apply-template": applyProjectTemplate(); break;
+        case "apply-shot-preset": applyShotPresetToActive(); break;
+        case "add-preset-shot": addPresetShot(); break;
         case "regenerate-prompt": {
           const shot = activeShot();
           if (!shot) return;
@@ -860,6 +1125,7 @@ function defaultSettings() {
     apiKey: "",
     model: DEFAULT_MODEL,
     personGeneration: "allow_all",
+    workhorseWebhookUrl: "",
     pollIntervalMs: 8000,
     maxPollMs: 10 * 60 * 1000,
   };
@@ -1005,6 +1271,54 @@ async function fetchVideoBlob(sample) {
   return res.blob();
 }
 
+function generateVideoExportFilename(projectTitle, shotNumber, shotTitle) {
+  return `${slugify(projectTitle)}-${String(shotNumber).padStart(2, "0")}-${slugify(shotTitle || "shot")}.mp4`;
+}
+
+function workhorsePayload(shot, blob, shotNumber) {
+  return {
+    projectSlug: SHAKESPEARE_PROJECT_SLUG,
+    projectTitle: state.project.title,
+    shotId: shot.id,
+    shotNumber,
+    shotTitle: shot.title || "Untitled shot",
+    duration: Number(shot.duration) || 0,
+    aspectRatio: state.project.aspectRatio,
+    resolution: state.project.resolution,
+    model: settings.model,
+    generatedAt: new Date().toISOString(),
+    prompt: promptFor(shot),
+    avoid: shot.avoid || "",
+    references: formatReferences(shot.referenceImages),
+    exportFileName: generateVideoExportFilename(state.project.title, shotNumber, shot.title),
+    fileSizeBytes: blob.size,
+  };
+}
+
+async function notifyWorkhorse(shot, blob) {
+  const webhookUrl = (settings.workhorseWebhookUrl || "").trim();
+  if (!webhookUrl) return;
+  if (!/^https?:\/\//i.test(webhookUrl)) {
+    throw new Error("Workhorse webhook must be an absolute http(s) URL.");
+  }
+  const url = new URL(webhookUrl);
+  if (url.protocol === "http:" && !/^(localhost|127\.0\.0\.1)$/i.test(url.hostname)) {
+    throw new Error("Use HTTPS for remote workhorse webhooks; plain HTTP is only allowed for localhost.");
+  }
+  const shotNumber = state.shots.findIndex((item) => item.id === shot.id) + 1;
+  let res;
+  try {
+    res = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(workhorsePayload(shot, blob, shotNumber)),
+    });
+  } catch (error) {
+    throw new Error(`Webhook request failed; check the endpoint URL, CORS policy, and network access. ${error.message || error}`);
+  }
+  if (!res.ok) throw new Error(`Webhook failed: ${res.status} ${res.statusText}`);
+}
+
 /* ----- Generation flow per shot ----- */
 
 async function generateShot(shotId, { fromBatch = false } = {}) {
@@ -1056,6 +1370,12 @@ async function generateShot(shotId, { fromBatch = false } = {}) {
           finishedAt: Date.now(),
         });
         logGen(shotId, `Ready (${(blob.size / 1024 / 1024).toFixed(1)} MB).`);
+        try {
+          await notifyWorkhorse(shot, blob);
+          logGen(shotId, "Registered render metadata with workhorse.");
+        } catch (notifyError) {
+          logGen(shotId, `Workhorse registration skipped: ${notifyError.message || notifyError}`);
+        }
         return;
       }
       const elapsed = Date.now() - start;
@@ -1143,6 +1463,7 @@ function openSettings() {
   els.apiKeyInput.value = settings.apiKey;
   els.modelSelect.value = settings.model;
   els.personGenSelect.value = settings.personGeneration;
+  if (els.workhorseWebhookInput) els.workhorseWebhookInput.value = settings.workhorseWebhookUrl || "";
   els.settingsModal.hidden = false;
   setTimeout(() => els.apiKeyInput.focus(), 50);
 }
@@ -1154,6 +1475,7 @@ function applySettingsFromForm() {
   settings.apiKey = els.apiKeyInput.value.trim();
   settings.model = els.modelSelect.value || DEFAULT_MODEL;
   settings.personGeneration = els.personGenSelect.value || "allow_all";
+  settings.workhorseWebhookUrl = els.workhorseWebhookInput?.value.trim() || "";
   saveSettings();
   renderApiKeyBadge();
   closeSettings();
@@ -1187,6 +1509,7 @@ function clearSettings() {
   settings.apiKey = "";
   settings.model = DEFAULT_MODEL;
   settings.personGeneration = "allow_all";
+  settings.workhorseWebhookUrl = "";
   saveSettings();
   renderApiKeyBadge();
   openSettings();
@@ -1372,6 +1695,8 @@ function boot() {
   renderApiKeyBadge();
   renderRefThumbs();
   renderGenerationPane();
+  renderResearchLinks();
+  loadResearchLinks();
   setSaveStatus("saved");
 }
 
@@ -1386,6 +1711,10 @@ function cacheGenerationEls() {
   els.refUploadInput = document.getElementById("ref-upload");
   els.refThumbs = document.getElementById("ref-thumbs");
   els.renderAllBtn = document.querySelector('[data-action="render-all"]');
+  els.projectTemplateSelect = document.getElementById("project-template-select");
+  els.shotPresetSelect = document.getElementById("shot-preset-select");
+  els.researchLinks = document.getElementById("research-links");
+  els.workhorseWebhookInput = document.getElementById("workhorse-webhook-input");
 }
 
 function wireSettingsAndGeneration() {

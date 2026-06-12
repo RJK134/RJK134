@@ -17,6 +17,16 @@
     </div>
 
     <div class="project-meta">
+      <label>Template
+        <div class="inline-control">
+          <select id="project-template-select">
+            <option value="">Base planner</option>
+            <option value="shib-shorts">Shakespeare is Boring — Shorts / Reels</option>
+            <option value="shib-youtube">Shakespeare is Boring — YouTube explainer</option>
+          </select>
+          <button type="button" class="ghost small" data-action="apply-template">Apply</button>
+        </div>
+      </label>
       <label>Aspect
         <select data-bind="project.aspectRatio">
           <option value="16:9">16:9 Landscape</option>
@@ -55,7 +65,8 @@
       <button data-action="new-project" class="ghost" title="Start fresh">New</button>
       <button data-action="import" class="ghost">Import</button>
       <input type="file" id="file-input" accept="application/json" hidden />
-      <button data-action="export-json" class="ghost">Export JSON</button>
+      <button data-action="export-json" class="ghost">Export backup JSON</button>
+      <button data-action="export-workhorse-json" class="ghost">Export workhorse JSON</button>
       <button data-action="export-brief" class="ghost">Export brief</button>
       <button data-action="export-prompts" class="ghost">Copy prompts</button>
       <button data-action="render-all" class="primary">Render all</button>
@@ -67,6 +78,18 @@
       <div class="shotlist-head">
         <h2>Shot list</h2>
         <span class="runtime" data-bind-text="project.runtime"></span>
+      </div>
+      <div class="preset-toolbar">
+        <select id="shot-preset-select">
+          <option value="">Choose shot preset…</option>
+          <option value="explainer-host">Direct-to-camera explainer</option>
+          <option value="dramatized-excerpt">Dramatized scene excerpt</option>
+          <option value="globe-rsc-broll">Globe / RSC location B-roll</option>
+        </select>
+        <div class="preset-actions">
+          <button data-action="apply-shot-preset" class="ghost small">Apply</button>
+          <button data-action="add-preset-shot" class="ghost small">+ Preset shot</button>
+        </div>
       </div>
       <ol id="shots" class="shots"></ol>
       <button data-action="add-shot" class="add-shot">+ Add shot</button>
@@ -369,6 +392,9 @@
       <h3>Continuity checks</h3>
       <ul id="checks" class="checks"></ul>
 
+      <h3>Shakespeare research links</h3>
+      <div id="research-links" class="research-links"></div>
+
       <h3>Style reference</h3>
       <textarea data-bind="project.styleNotes" rows="4" placeholder="Consistent characters, palette, recurring motifs, wardrobe — anything that should carry across every shot."></textarea>
     </aside>
@@ -431,9 +457,24 @@
           Each render counts against your Google AI Pro quota. 4K renders use more tokens.
           Reference images are sent to Google as part of the request and not stored anywhere else.
         </p>
+        <label class="block">
+          <span>Workhorse webhook (optional)</span>
+          <input id="workhorse-webhook-input" type="url" autocomplete="off" spellcheck="false"
+            placeholder="https://your-workhorse.example/webhook/shakespeare-veo-register" />
+          <small class="modal-hint">
+            If set, Veo Studio will POST render metadata after a successful generation so the workhorse can register it as a <code>generated_video</code> entity.
+            Prefer HTTPS; plain HTTP is only intended for localhost development.
+          </small>
+        </label>
+        <div class="modal-note warn">
+          The Gemini API key is stored in <code>localStorage</code> for this browser profile. Avoid using this tool on shared/public machines, because any script running on this origin could read it.
+        </div>
+        <div class="modal-note">
+          Use <strong>Export backup JSON</strong> regularly before clearing browser data or moving to another machine. Importing that file restores the full project.
+        </div>
       </div>
       <div class="modal-foot">
-        <button class="ghost" data-action="settings-clear">Clear</button>
+        <button class="ghost" data-action="settings-clear">Clear stored key</button>
         <span class="spacer"></span>
         <button class="ghost" data-action="settings-test">Test key</button>
         <button class="ghost" data-action="close-settings">Cancel</button>
